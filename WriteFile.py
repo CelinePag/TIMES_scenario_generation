@@ -6,9 +6,9 @@ Created on Fri May 10 11:43:50 2024
 """
 
 from openpyxl import load_workbook, Workbook
-import pandas as pd
-from math import ceil
 
+
+DICT_ATT_TO_BND = {"VAR_Act":"ACT_BND"}
 
 class ExcelTIMES:
     def __init__(self, wb_name, ws_name):
@@ -75,7 +75,27 @@ class ExcelSUPXLS(ExcelTIMES):
             for col in range(1, len(df.columns)+1):
                 self.ws.cell(self.row_nb, col, value=row[self.ws.cell(row_head, col).value])
             self.row_nb += 1
-
+    
+    def Write_table_UC(self, df, regions):
+        self.ws.cell(self.row_nb, 1, value="~TFM_INS")
+        self.row_nb += 1
+        row_head = self.row_nb
+        columns = ["Attribute", "LimType", "Pset_PN", "Year", "TimeSlice"]
+        for i, col in enumerate(columns):
+            self.ws.cell(self.row_nb, i+1, value=col)
+        for i, r in enumerate(regions):
+            self.ws.cell(self.row_nb, len(columns)+1+i, value=r)
+        self.row_nb += 1
+        for idx, row in df.iterrows():
+            self.ws.cell(self.row_nb, 1, value=DICT_ATT_TO_BND[row["Attribute"]])
+            self.ws.cell(self.row_nb, 2, value="FX")
+            self.ws.cell(self.row_nb, 3, value=row["Process"])
+            self.ws.cell(self.row_nb, 4, value=row["Vintage"])
+            self.ws.cell(self.row_nb, 5, value=row["Timeslice"])
+            for i, r in enumerate(regions):
+                self.ws.cell(self.row_nb, len(columns)+1+i, value=row[r])
+            self.row_nb += 1
+        
     
 # "~TFM_UPD"
 
