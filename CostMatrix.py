@@ -7,6 +7,7 @@ Created on Wed Dec 18 11:42:52 2024
 
 import pandas as pd
 import WriteFile as wf
+import Clustering as cl
 import numpy as np
 import copy
 
@@ -14,6 +15,7 @@ import copy
 # FOLDER_SUBXLS = r"C:\Users\celinep\Documents\GitHub\TIMES_scenario_generation\SuppXLS"
 FOLDER_SUBXLS = r"C:\Veda\Veda_models\test_uncertainties\test_uncertainties\SuppXLS"
 path_data = r"C:\Veda\Veda_models\test_uncertainties\test_uncertainties\Exported_files\010225_153623151.csv"
+path_obj = r"C:\Veda\Veda_models\test_uncertainties\test_uncertainties\Exported_files\010225_153623151.csv"
 
 
 class Uncertainty():
@@ -171,7 +173,15 @@ class Scenarios():
                 e.close()
 
 
-    # def get_costMatrix(self, file):
+    def get_costMatrix(self, file):
+        self.df_obj = pd.read_csv(path_data, sep=";", )
+        self.cost_matrix = np.empty(shape=(self.N, self.N), dtype='object')
+        
+        for idx, row in self.df_obj.iterrows():
+            i = row["A"]
+            j = row["j"]
+            self.cost_matrix[i,j] = row["Pv"]
+            
 
 
 
@@ -181,10 +191,18 @@ class Scenarios():
 
 
 
-def main():
+def main(K):
     S = Scenarios(N=10, routine="test")
     S.create_subXLS_scenarios()
     # S.create_subXLS_fixedVars(path_data)
+    
+    S.get_costMatrix(path_obj)
+    
+    # get representatives and pairing
+
+    C = cl.ClusterMIP(K)
+    C.construct_model(S.cost_matrix)
+    C.solve_model()
 
 if __name__ == "__main__":
-    main()
+    main(K=2)

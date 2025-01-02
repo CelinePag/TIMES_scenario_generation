@@ -91,13 +91,3 @@ class ClusterMIP():
             print(j, "is representative:", self.model.u_n[j].value)
             for i in range(1, self.N+1):
                 print(i, "is in the same cluster as non-representative:", self.model.x_nn[(i,j)].value)
-
-
-M = np.array([[0.9, 1.1, 4.2, 3.9],
-              [1.4, 1.0, 4.3, 4.0],
-              [1.8, 2.0, 1.1, 1.0],
-              [1.8, 2.0, 1.1, 1.0]])
-print(M)
-C = ClusterMIP(2)
-C.construct_model(M)
-C.solve_model()
