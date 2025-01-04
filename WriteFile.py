@@ -5,10 +5,13 @@ Created on Fri May 10 11:43:50 2024
 @author: celinep
 """
 
-from openpyxl import load_workbook, Workbook
+from openpyxl import load_workbook, Workbook 
 
 
-DICT_ATT_TO_BND = {"VAR_Act":"ACT_BND"}
+DICT_ATT_TO_BND = {"VAR_Act":"ACT_BND", "VAR_Cap":"CAP_BND", "VAR_Ncap":"NCAP_BND",
+                   "VAR_Comnet":"COM_BNDNET", "VAR_Comprd":"COM_BNDPRD", "VAR_Cumcom":"COM_CUMBND",
+                   "VAR_Cumflo":"FLO_CUM", "VAR_Flo":"FLO_BND", "VAR_Ire":"IRE_BND",
+                   "VAR_Cumcst":"REG_CUMCST", "VAR_Sin":"STGIN_BND", "VAR_Sout":"STGOUT_BND"}
 
 class ExcelTIMES:
     def __init__(self, wb_name, ws_name):
@@ -80,7 +83,7 @@ class ExcelSUPXLS(ExcelTIMES):
         self.ws.cell(self.row_nb, 1, value="~TFM_INS")
         self.row_nb += 1
         row_head = self.row_nb
-        columns = ["Attribute", "LimType", "Pset_PN", "Year", "TimeSlice"]
+        columns = ["Attribute", "LimType", "Pset_PN", "Cset_CN", "Year", "TimeSlice"]
         for i, col in enumerate(columns):
             self.ws.cell(self.row_nb, i+1, value=col)
         for i, r in enumerate(regions):
@@ -90,8 +93,9 @@ class ExcelSUPXLS(ExcelTIMES):
             self.ws.cell(self.row_nb, 1, value=DICT_ATT_TO_BND[row["Attribute"]])
             self.ws.cell(self.row_nb, 2, value="FX")
             self.ws.cell(self.row_nb, 3, value=row["Process"])
-            self.ws.cell(self.row_nb, 4, value=row["Vintage"])
-            self.ws.cell(self.row_nb, 5, value=row["Timeslice"])
+            self.ws.cell(self.row_nb, 4, value=row["Commodity"])
+            self.ws.cell(self.row_nb, 5, value=row["Period"])
+            self.ws.cell(self.row_nb, 6, value=row["Timeslice"])
             for i, r in enumerate(regions):
                 self.ws.cell(self.row_nb, len(columns)+1+i, value=row[r])
             self.row_nb += 1
