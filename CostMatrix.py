@@ -153,12 +153,12 @@ class Scenarios():
             e.close()
 
 
-    def create_subXLS_fixedVars(self, path_data):
+    def create_subXLS_fixedVars(self, path_data): #TODO: only constrqint the first stqge variables !!!
         self.df_var = pd.read_csv(path_data, sep=",", header=0, )
-        print(self.df_var)
         regions = self.df_var['Region'].unique()
         self.df_var = pd.pivot(self.df_var, index=["Scenario", "Attribute", "Commodity", "Process", "Period", "Vintage", "Timeslice"], values="Pv", columns="Region").fillna(0) #TODO
         self.df_var.reset_index(inplace=True)
+        self.df_var = self.df_var.replace("-", "")
         for n in range(1, self.N+1):
             self.write_subXLS_fixedVar(n, regions)
 
@@ -173,7 +173,7 @@ class Scenarios():
             e.close()
 
 
-    def get_costMatrix(self, file):
+    def get_costMatrix(self, file): #TODO
         self.df_obj = pd.read_csv(path_data, sep=",", )
         self.cost_matrix = np.empty(shape=(self.N, self.N), dtype='object')
         
