@@ -58,7 +58,6 @@ class Uncertainty():
                         self.df.at[idx, y] = self.df.at[idx, y] * df_mini_old_values.at[y]
                 elif self.name == "Tech_Char":
                     self.df.at[idx, "Value"] = self.df.at[idx, "Value"] * old_values[row["Region"], row["Year"]]
-                
 
     def add_values(self, r, y=None):
         """ update the Dataframe with a new row """
@@ -89,10 +88,11 @@ class Scenario():
         #ex: self.dfs = [{"typeTable":"~TFM_INS-TS", "df":pd.DataFrame}, {"typeTable":"~TFM_UPD", "df":pd.DataFrame}]
 
 class Scenarios():
-    def __init__(self, N:int, routine):
+    def __init__(self, N:int, routine:str, year_second_stage:int):
         self.N = N
         self.list_scenarios = []
         self.routine = routine
+        self.year_second_stage = year_second_stage
 
     def create_subXLS_scenarios(self):
         self.get_old_values_uncertainties()
@@ -106,7 +106,7 @@ class Scenarios():
         if routine == "test":
             uncertainties = []
             u = {"name":"Demand", "Attribute":"Demand", "CommTechName":"DTCAR",
-                   "Regions":["REG1", "REG2"], "Periods":[y for y in range(2030, 2051)],
+                   "Regions":["REG1", "REG2"], "Periods":[y for y in range(2035, 2051)],
                    "Values":{}, "ReplaceValue":False}
             c = np.random.normal(1, 0.05)
             for r in u["Regions"]:
@@ -137,7 +137,6 @@ class Scenarios():
         self.df_old_values = pd.DataFrame()
         files = Path(PATH_TIMES).glob('*.xlsx')
         for file in files:
-            print(file)
             try:
                 df = pd.read_excel(file, sheet_name="uncertainty").fillna(0)
                 self.df_old_values = pd.concat([self.df_old_values, df])
@@ -147,6 +146,7 @@ class Scenarios():
 
     def write_subXLS_scenario(self, n, scenario):
         wb_name = f"{FOLDER_SUBXLS}\Scen_{n}.xlsx"
+        print(wb_name)
         for i, u in enumerate(scenario.dfs):
             e = wf.ExcelSUPXLS(wb_name, str(i))
             e.Write_table(u["typeTable"], u["df"])
@@ -159,6 +159,7 @@ class Scenarios():
         self.df_var = pd.pivot(self.df_var, index=["Scenario", "Attribute", "Commodity", "Process", "Period", "Vintage", "Timeslice"], values="Pv", columns="Region").fillna(0) #TODO
         self.df_var.reset_index(inplace=True)
         self.df_var = self.df_var.replace("-", "")
+        self.df_var = self.df_var[self.df_var["Period"] < self.year_second_stage]
         for n in range(1, self.N+1):
             self.write_subXLS_fixedVar(n, regions)
 
@@ -188,11 +189,11 @@ class Scenarios():
 
 
 def main(K):
-    S = Scenarios(N=10, routine="test")
-    # S.create_subXLS_scenarios()
-    S.create_subXLS_fixedVars(path_data)
+    S = Scenarios(N=10, routine="test", year_second_stage=2035)
+    S.create_subXLS_scenarios()
+    # S.create_subXLS_fixedVars(path_data)
     
-    S.get_costMatrix(path_obj)
+    # S.get_costMatrix(path_obj)
     
     # get representatives and pairing
 
