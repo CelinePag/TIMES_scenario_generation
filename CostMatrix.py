@@ -11,14 +11,16 @@ import Clustering as cl
 import numpy as np
 import copy
 from pathlib import Path
+import itertools
 
 
 # FOLDER_SUBXLS = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_original\IFE-NO-2024.08.27_original\SuppXLS"
 # FOLDER_SUBXLS = r"C:\Users\celinep\Documents\GitHub\TIMES_scenario_generation\SuppXLS"
-FOLDER_SUBXLS = r"C:\Veda\Veda_models\test_uncertainties\test_uncertainties\SuppXLS"
-path_data = r"C:\Veda\Veda_models\test_uncertainties\test_uncertainties\Exports\010325_173415264.csv"
-path_obj = r"C:\Veda\Veda_models\test_uncertainties\test_uncertainties\Exports\010325_173625650.csv"
-PATH_TIMES = r"C:\Veda\Veda_models\test_uncertainties\test_uncertainties\\"
+FOLDER_SUBXLS = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\SuppXLS"
+PATH_OPTIVAR = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\Exported_files\fixvar.csv"
+path_obj = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\Exports\010325_173625650.csv"
+PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\\"
+PATH_UNCERTAINTIES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\uncertainties.xlsx"
 
 
 class Uncertainty():
@@ -80,81 +82,123 @@ class Uncertainty():
 
 
 class Scenario():
-    def __init__(self, uncertainties, old_values):
+    def __init__(self, sheet_names:list, year_second_stage:int):
         self.dfs = []
-        for u in uncertainties:
-            uncert = Uncertainty(u, old_values)
-            self.dfs.append({"typeTable":uncert.typeTable, "df":uncert.df})
+        for sh in sheet_names:
+            data = pd.read_excel(PATH_UNCERTAINTIES, sheet_name=sh, header=None)
+            col_tbd = []
+            row_tbd = []
+            c_year = []
+            for i, el in enumerate(data.iloc[1]):
+                if type(el) in [float, np.float64, int] and el < year_second_stage:
+                    col_tbd.append(i)
+                elif el in ["Year", "Period", "Vintage"]:
+                    c_year.append(i)
+            
+            for idx, row in data.iterrows():
+                for col in c_year:
+                    if idx > 1 and data.at[idx, col] < year_second_stage:
+                        row_tbd.append(idx)
+            data.drop(col_tbd,axis=1,inplace=True)
+            data.drop(row_tbd,axis=0,inplace=True)
+            self.dfs.append({"sheet_name":sh, "df":data})
+        #save it to the 'new_tab' in destfile
+        # data.to_excel(destfile, sheet_name='new_tab')
+
+        # self.dfs = []
+        # for u in uncertainties:
+        #     uncert = Uncertainty(u, old_values)
+        #     self.dfs.append({"typeTable":uncert.typeTable, "df":uncert.df})
         #ex: self.dfs = [{"typeTable":"~TFM_INS-TS", "df":pd.DataFrame}, {"typeTable":"~TFM_UPD", "df":pd.DataFrame}]
 
 class Scenarios():
-    def __init__(self, N:int, routine:str, year_second_stage:int):
-        self.N = N
+    def __init__(self, uncert:dict, year_second_stage:int):
+        self.N = 1
+        for el in uncert:
+            self.N = self.N * len(el[1])
         self.list_scenarios = []
-        self.routine = routine
+        self.uncert = uncert
         self.year_second_stage = year_second_stage
 
     def create_subXLS_scenarios(self):
-        self.get_old_values_uncertainties()
-        for n in range(1, self.N+1):
-            uncertainties = self.create_uncertainties(self.routine)
-            s = Scenario(uncertainties, self.df_old_values)
-            self.list_scenarios.append(s)
-            self.write_subXLS_scenario(n, s)
-
-    def create_uncertainties(self, routine): #TODO
-        if routine == "test":
-            uncertainties = []
-            u = {"name":"Demand", "Attribute":"Demand", "CommTechName":"DTCAR",
-                   "Regions":["REG1", "REG2"], "Periods":[y for y in range(2035, 2051)],
-                   "Values":{}, "ReplaceValue":False}
-            c = np.random.normal(1, 0.05)
-            for r in u["Regions"]:
-                for y in u["Periods"]:
-                    u["Values"][(r,y)] = c
-            uncertainties.append(u)
+        # self.get_old_values_uncertainties()
+        n = 1
+        all_uncert = [[f"{u[0]}_{ur}" for ur in u[1]] for u in self.uncert]
+        combinations = all_uncert[0]
+        if len(all_uncert) > 1:
+            for i in range(1, len(all_uncert)):
+                combinations = list(itertools.product(combinations, all_uncert[i]))
+        print(combinations)
+        
             
-            u = copy.deepcopy(u)
-            u["CommTechName"] = "DTPUB"
-            c = np.random.normal(1, 0.05)
-            for r in u["Regions"]:
-                for y in u["Periods"]:
-                    u["Values"][(r,y)] = c
-            uncertainties.append(u)
-            
-            # u = {"name":"Tech_Char", "Attribute":"INVCOST", "CommTechName":"TCANELC1",
-            #        "Regions":["REG1", "REG2"], "Periods":[2030],
-            #        "Values":{}, "ReplaceValue":False}
-            # c = np.random.normal(1, 0.05)
-            # for r in u["Regions"]:
-            #     for y in u["Periods"]:
-            #         u["Values"][(r,y)] = c
-            # uncertainties.append(u)
+        for s in combinations:
+            # uncertainties = self.create_uncertainties(self.routine)
+            S = Scenario(s, self.year_second_stage)
+            self.list_scenarios.append(S)
+            self.write_subXLS_scenario(n, S)
+            n += 1
 
-            return uncertainties
+    # def create_uncertainties(self, routine): #TODO
+    #     if routine == "test":
+    #         uncertainties = []
+    #         u = {"name":"Demand", "Attribute":"Demand", "CommTechName":"DTCAR",
+    #                "Regions":["REG1", "REG2"], "Periods":[y for y in range(2035, 2051)],
+    #                "Values":{}, "ReplaceValue":False}
+    #         c = np.random.normal(1, 0.05)
+    #         for r in u["Regions"]:
+    #             for y in u["Periods"]:
+    #                 u["Values"][(r,y)] = c
+    #         uncertainties.append(u)
+            
+    #         u = copy.deepcopy(u)
+    #         u["CommTechName"] = "DTPUB"
+    #         c = np.random.normal(1, 0.05)
+    #         for r in u["Regions"]:
+    #             for y in u["Periods"]:
+    #                 u["Values"][(r,y)] = c
+    #         uncertainties.append(u)
+            
+    #         # u = {"name":"Tech_Char", "Attribute":"INVCOST", "CommTechName":"TCANELC1",
+    #         #        "Regions":["REG1", "REG2"], "Periods":[2030],
+    #         #        "Values":{}, "ReplaceValue":False}
+    #         # c = np.random.normal(1, 0.05)
+    #         # for r in u["Regions"]:
+    #         #     for y in u["Periods"]:
+    #         #         u["Values"][(r,y)] = c
+    #         # uncertainties.append(u)
+
+    #         return uncertainties
     
-    def get_old_values_uncertainties(self, name_sheet="uncertainty"): #TODO
-        self.df_old_values = pd.DataFrame()
-        files = Path(PATH_TIMES).glob('*.xlsx')
-        for file in files:
-            try:
-                df = pd.read_excel(file, sheet_name="uncertainty").fillna(0)
-                self.df_old_values = pd.concat([self.df_old_values, df])
-            except ValueError:
-                pass
+    # def get_old_values_uncertainties(self, name_sheet="uncertainty"): #TODO
+    #     self.df_old_values = pd.DataFrame()
+    #     files = Path(PATH_TIMES).glob('*.xlsx')
+    #     for file in files:
+    #         try:
+    #             df = pd.read_excel(file, sheet_name="uncertainty").fillna(0)
+    #             self.df_old_values = pd.concat([self.df_old_values, df])
+    #         except ValueError:
+    #             pass
 
 
     def write_subXLS_scenario(self, n, scenario):
-        wb_name = f"{FOLDER_SUBXLS}\Scen_{n}.xlsx"
-        print(wb_name)
-        for i, u in enumerate(scenario.dfs):
-            e = wf.ExcelSUPXLS(wb_name, str(i))
-            e.Write_table(u["typeTable"], u["df"])
-            e.close()
+        wb_name = f"{FOLDER_SUBXLS}\Scen_{n}_uncertainty.xlsx"
+        with pd.ExcelWriter(wb_name) as writer:
+            for i, u in enumerate(scenario.dfs):
+                u["df"].to_excel(writer, sheet_name=u["sheet_name"], index=False,header=False)
+            
+            
+            
+            
+            # e = wf.ExcelSUPXLS(wb_name, str(i))
+            # e.Write_table(u["typeTable"], u["df"])
+            # e.close()
 
 
     def create_subXLS_fixedVars(self, path_data): #TODO: only constrqint the first stqge variables !!!
-        self.df_var = pd.read_csv(path_data, sep=",", header=0, )
+        self.df_var = pd.read_csv(path_data, sep=";", header=0, )
+        print(self.df_var )
+        print(self.df_var.iloc[0,0])
+        print(self.df_var.iloc[0,0].split(";"))
         regions = self.df_var['Region'].unique()
         self.df_var = pd.pivot(self.df_var, index=["Scenario", "Attribute", "Commodity", "Process", "Period", "Vintage", "Timeslice"], values="Pv", columns="Region").fillna(0) #TODO
         self.df_var.reset_index(inplace=True)
@@ -165,8 +209,8 @@ class Scenarios():
 
     def write_subXLS_fixedVar(self, n, regions):
         wb_name = f"{FOLDER_SUBXLS}\Scen_{n}_UCfixedVar.xlsx"
-        # df_n = self.df_var[self.df_var["Scenario"] == f"S_{n}_{n}"]
-        df_n = self.df_var #TODO remettre la ligne du dessus hors test
+        df_n = self.df_var[self.df_var["Scenario"] == f"{n}_{n}"]
+        # df_n = self.df_var #TODO remettre la ligne du dessus hors test
         for att in df_n['Attribute'].unique():
             print(wb_name, att)
             e = wf.ExcelSUPXLS(wb_name, att)
@@ -175,7 +219,7 @@ class Scenarios():
 
 
     def get_costMatrix(self, file): #TODO
-        self.df_obj = pd.read_csv(path_data, sep=",", )
+        self.df_obj = pd.read_csv(PATH_OPTIVAR, sep=",", )
         self.cost_matrix = np.empty(shape=(self.N, self.N), dtype='object')
         
         for idx, row in self.df_obj.iterrows():
@@ -185,13 +229,15 @@ class Scenarios():
             
 
 
-
-
-
 def main(K):
-    S = Scenarios(N=10, routine="test", year_second_stage=2035)
-    S.create_subXLS_scenarios()
-    # S.create_subXLS_fixedVars(path_data)
+    uncert = [["CO2prices", ("high", "low", "med")], ["EUROelecPrices", ("high", "low", "med")],]
+    N = 1
+    for el in uncert:
+        N = N * len(el[1])
+    print(f"{N} scenarios")
+    S = Scenarios(uncert, year_second_stage=2031)
+    # S.create_subXLS_scenarios()
+    S.create_subXLS_fixedVars(PATH_OPTIVAR)
     
     # S.get_costMatrix(path_obj)
     
