@@ -90,4 +90,5 @@ class ClusterMIP():
         for j in range(1, self.N+1):
             print(j, "is representative:", self.model.u_n[j].value==1)
             for i in range(1, self.N+1):
-                print(i, "is in the same cluster as non-representative:", self.model.x_nn[(i,j)].value==1)
+                if self.model.x_nn[(i,j)].value==1:
+                    print(i, "is in the same cluster as non-representative:", self.model.x_nn[(i,j)].value==1)

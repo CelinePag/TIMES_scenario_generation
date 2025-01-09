@@ -12,15 +12,22 @@ import numpy as np
 import copy
 from pathlib import Path
 import itertools
+import shutil
+import json
+
 
 
 # FOLDER_SUBXLS = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_original\IFE-NO-2024.08.27_original\SuppXLS"
 # FOLDER_SUBXLS = r"C:\Users\celinep\Documents\GitHub\TIMES_scenario_generation\SuppXLS"
-FOLDER_SUBXLS = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\SuppXLS"
-PATH_OPTIVAR = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\Exported_files\fixvar.csv"
-path_obj = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\Exports\010325_173625650.csv"
+
 PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\\"
-PATH_UNCERTAINTIES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\uncertainties.xlsx"
+
+FOLDER_SUBXLS = f"{PATH_TIMES}SuppXLS"
+PATH_OPTIVAR = f"{PATH_TIMES}Exported_files\010925_104244412.csv"
+PATH_OBJ = f"{PATH_TIMES}Exported_files\\010925_104244412.csv"
+PATH_UNCERTAINTIES = f"{PATH_TIMES}uncertainties.xlsx"
+PATH_GDX = r"C:\Veda\GAMS_WrkTIMES\UC8"
+PATH_CASES = f"{PATH_TIMES}AppData\Cases.json"
 
 
 class Uncertainty():
@@ -192,41 +199,126 @@ class Scenarios():
             # e = wf.ExcelSUPXLS(wb_name, str(i))
             # e.Write_table(u["typeTable"], u["df"])
             # e.close()
-
-
-    def create_subXLS_fixedVars(self, path_data): #TODO: only constrqint the first stqge variables !!!
-        self.df_var = pd.read_csv(path_data, sep=";", header=0, )
-        print(self.df_var )
-        print(self.df_var.iloc[0,0])
-        print(self.df_var.iloc[0,0].split(";"))
-        regions = self.df_var['Region'].unique()
-        self.df_var = pd.pivot(self.df_var, index=["Scenario", "Attribute", "Commodity", "Process", "Period", "Vintage", "Timeslice"], values="Pv", columns="Region").fillna(0) #TODO
-        self.df_var.reset_index(inplace=True)
-        self.df_var = self.df_var.replace("-", "")
-        self.df_var = self.df_var[self.df_var["Period"] < self.year_second_stage]
-        for n in range(1, self.N+1):
-            self.write_subXLS_fixedVar(n, regions)
-
-    def write_subXLS_fixedVar(self, n, regions):
-        wb_name = f"{FOLDER_SUBXLS}\Scen_{n}_UCfixedVar.xlsx"
-        df_n = self.df_var[self.df_var["Scenario"] == f"{n}_{n}"]
-        # df_n = self.df_var #TODO remettre la ligne du dessus hors test
-        for att in df_n['Attribute'].unique():
-            print(wb_name, att)
-            e = wf.ExcelSUPXLS(wb_name, att)
-            e.Write_table_UC(df_n[df_n["Attribute"] == att], regions)
-            e.close()
-
-
-    def get_costMatrix(self, file): #TODO
-        self.df_obj = pd.read_csv(PATH_OPTIVAR, sep=",", )
-        self.cost_matrix = np.empty(shape=(self.N, self.N), dtype='object')
-        
-        for idx, row in self.df_obj.iterrows():
-            i = row["A"]
-            j = row["j"]
-            self.cost_matrix[i,j] = row["Pv"]
             
+    def move_gdx(self):
+        for n in range(1, self.N+1):
+            src_file = f"{PATH_GDX}\{n}_{n}\GAMSSAVE\{n}_{n}.gdx"
+            dst_file = f"{PATH_TIMES}\AppData\GAMSSAVE\{n}_{n}.gdx"
+            shutil.copyfile(src_file, dst_file)
+
+    
+    def reload_case(self):
+        # PATH_CASES
+        with open(PATH_CASES, mode="r", encoding="utf-8") as read_file:
+            cases = json.load(read_file)
+        
+        print(cases)
+        
+        nstart_id = 1000
+
+        self.id_scenariogroupe = {}
+        
+        idx_tba = []
+        new_cases = []
+        for i, case in enumerate(cases):
+            for n in range(1, self.N+1):
+                if case["Name"] == f"{n}_{n}":
+                    self.id_scenariogroupe[n] = case["ScenarioGroupId"]
+                    break
+            if case["CaseId"] < nstart_id:
+                idx_tba.append(i)
+        
+        for i in idx_tba:
+            new_cases.append(cases[i])
+                
+
+            
+        n_id = nstart_id
+        for n1 in range(1, self.N+1):
+            for n2 in range(1, self.N+1):
+                if n1 != n2:
+                    new_cases.append(self.create_case(n_id, n1, n2))
+                    # print(case)
+                    n_id += 1
+        
+        with open(PATH_CASES, mode="w", encoding="utf-8") as write_file:
+            json.dump(new_cases, write_file)
+                    
+    def create_case(self, n_id, n1, n2):
+        dict_case = {"CaseId":n_id,
+                     "CreatedOn":"2025-01-07 14:16",
+                     "Description":f"scenario {n2} with fixed variables from {n1}",
+                     "EditedOn":"2025-01-07 14:16",
+                     "EndingYear":"2055",
+                     "FixResultFileName":"True",
+                     "FixResultInfo":{"WorkTimesFolderPath":f"{PATH_TIMES}AppData\\GAMSSAVE",
+                                      "GdxElasticDermands":{"GdxSelectedFile":{"FileName":"",
+                                                                               "FilePath":"",
+                                                                               "IsSelected":False},
+                                                            "IsApplied":True},
+                                      "GdxIre":{"GdxSelectedFile":{"FileName":"",
+                                                                   "FilePath":"",
+                                                                   "IsSelected":False},
+                                                "IsApplied":True,
+                                                "RadioSelection":1},
+                                      "GdxUseSolution":{"FixYearsUpto":"2030",
+                                                        "GdxSelectedFile":{"FileName":f"{n1}_{n1}",
+                                                                           "FilePath":f"{PATH_TIMES}AppData\\GAMSSAVE\\{n1}_{n1}.gdx",
+                                                                           "IsSelected":True},
+                                                        "IsApplied":True,
+                                                        "RadioSelection":1},
+                                      "IsApplyFixResult":True},
+                     "GAMSSourceFolder":"GAMS_SrcTIMES.v4.7.6",
+                     "Name":f"{n1}_{n2}",
+                     "ParametricGroup":None,
+                     "ParametricGroupId":None,
+                     "PeriodsDefinition":"msy09_2055",
+                     "PropertiesGroup":"DefaultProperties",
+                     "PropertiesGroupId":269,
+                     "RegionGroup":"AllRegion",
+                     "RegionGroupId":268,
+                     "ScenarioGroup":f"{n2}_{n2}",
+                     "ScenarioGroupId":self.id_scenariogroupe[n2], # get id scenario group
+                     "Solver":"cplex",
+                     "SolverOptionFile":"cplex_optGeorge",
+                     "UserName":"celinep"}
+        return dict_case
+            
+
+    # def create_subXLS_fixedVars(self, path_data): #TODO: only constrqint the first stqge variables !!!
+    #     self.df_var = pd.read_csv(path_data, sep=";", header=0, )
+    #     print(self.df_var )
+    #     print(self.df_var.iloc[0,0])
+    #     print(self.df_var.iloc[0,0].split(";"))
+    #     regions = self.df_var['Region'].unique()
+    #     self.df_var = pd.pivot(self.df_var, index=["Scenario", "Attribute", "Commodity", "Process", "Period", "Vintage", "Timeslice"], values="Pv", columns="Region").fillna(0) #TODO
+    #     self.df_var.reset_index(inplace=True)
+    #     self.df_var = self.df_var.replace("-", "")
+    #     self.df_var = self.df_var[self.df_var["Period"] < self.year_second_stage]
+    #     for n in range(1, self.N+1):
+    #         self.write_subXLS_fixedVar(n, regions)
+
+    # def write_subXLS_fixedVar(self, n, regions):
+    #     wb_name = f"{FOLDER_SUBXLS}\Scen_{n}_UCfixedVar.xlsx"
+    #     df_n = self.df_var[self.df_var["Scenario"] == f"{n}_{n}"]
+    #     # df_n = self.df_var #TODO remettre la ligne du dessus hors test
+    #     for att in df_n['Attribute'].unique():
+    #         print(wb_name, att)
+    #         e = wf.ExcelSUPXLS(wb_name, att)
+    #         e.Write_table_UC(df_n[df_n["Attribute"] == att], regions)
+    #         e.close()
+
+
+    def get_costMatrix(self): 
+        self.df_obj = pd.read_csv(PATH_OBJ, sep=";", )
+        self.cost_matrix = np.empty(shape=(self.N, self.N), dtype='object')
+        for idx, row in self.df_obj.iterrows():
+            i = int(row["Scenario"].split("_")[0])-1
+            j = int(row["Scenario"].split("_")[1])-1
+            self.cost_matrix[i,j] = float(row["Pv"].replace(",", "."))
+
+
+
 
 
 def main(K):
@@ -237,15 +329,17 @@ def main(K):
     print(f"{N} scenarios")
     S = Scenarios(uncert, year_second_stage=2031)
     # S.create_subXLS_scenarios()
-    S.create_subXLS_fixedVars(PATH_OPTIVAR)
+    # # S.create_subXLS_fixedVars(PATH_OPTIVAR)
+    # S.move_gdx()
+    # S.reload_case()
     
-    # S.get_costMatrix(path_obj)
+    S.get_costMatrix()
     
     # get representatives and pairing
 
-    # C = cl.ClusterMIP(K)
-    # C.construct_model(S.cost_matrix)
-    # C.solve_model()
+    C = cl.ClusterMIP(K)
+    C.construct_model(S.cost_matrix)
+    C.solve_model()
 
 if __name__ == "__main__":
     main(K=2)
