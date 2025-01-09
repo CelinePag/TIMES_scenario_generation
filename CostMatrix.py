@@ -28,6 +28,7 @@ PATH_OBJ = f"{PATH_TIMES}Exported_files\\010925_104244412.csv"
 PATH_UNCERTAINTIES = f"{PATH_TIMES}uncertainties.xlsx"
 PATH_GDX = r"C:\Veda\GAMS_WrkTIMES\UC8"
 PATH_CASES = f"{PATH_TIMES}AppData\Cases.json"
+PATH_GROUPS = f"{PATH_TIMES}AppData\Groups.json"
 
 
 class Uncertainty():
@@ -126,6 +127,7 @@ class Scenarios():
         self.list_scenarios = []
         self.uncert = uncert
         self.year_second_stage = year_second_stage
+        self.id_scenariogroupe = {}
 
     def create_subXLS_scenarios(self):
         # self.get_old_values_uncertainties()
@@ -193,12 +195,32 @@ class Scenarios():
             for i, u in enumerate(scenario.dfs):
                 u["df"].to_excel(writer, sheet_name=u["sheet_name"], index=False,header=False)
             
-            
-            
-            
-            # e = wf.ExcelSUPXLS(wb_name, str(i))
-            # e.Write_table(u["typeTable"], u["df"])
-            # e.close()
+    def create_scenarios_diag(self):
+        with open(PATH_GROUPS, mode="r", encoding="utf-8") as read_file:
+            scenarios = json.load(read_file)
+        
+        nstart_id = 1000
+        new_scenarios = []
+        example = None
+        for sce in scenarios:
+            if sce["GroupName"] == "Base":
+                example = sce
+                new_scenarios.append(sce)
+                break
+        for n in range(1, self.N+1):
+            scen_n = self.add_scenario_n(n, n+nstart_id, example)
+            new_scenarios.append(scen_n)
+        
+        with open(PATH_GROUPS, mode="w", encoding="utf-8") as write_file:
+            json.dump(new_scenarios, write_file)
+
+    def add_scenario_n(self, n, n_group_id, example):
+        new_scenario = {idx:el for idx, el in example.items()}
+        new_scenario["GroupName"] = f"{n}_{n}"
+        new_scenario["SavedGroupId"] = f"{n_group_id}"
+        new_scenario["Settings"] = new_scenario["Settings"].replace(f"{n}_uncertainty\", \"Checked\": false",
+                                                                    f"{n}_uncertainty\", \"Checked\": true")
+        return new_scenario
             
     def move_gdx(self):
         for n in range(1, self.N+1):
@@ -207,36 +229,35 @@ class Scenarios():
             shutil.copyfile(src_file, dst_file)
 
     
-    def reload_case(self):
+    def reload_case(self, diag=False):
         # PATH_CASES
         with open(PATH_CASES, mode="r", encoding="utf-8") as read_file:
             cases = json.load(read_file)
         
-        print(cases)
+        with open(PATH_GROUPS, mode="r", encoding="utf-8") as read_file:
+            scenarios = json.load(read_file)
         
-        nstart_id = 1000
-
-        self.id_scenariogroupe = {}
-        
-        idx_tba = []
+        for sce in scenarios:
+            if sce["GroupType"] == "Scenario":
+                for n in range(1, self.N+1):
+                    if sce["GroupName"] == f"{n}_{n}":
+                        self.id_scenariogroupe[n] = sce["SavedGroupId"]
+                        break
+                    
+        nstart_id = 1000        
         new_cases = []
         for i, case in enumerate(cases):
             for n in range(1, self.N+1):
                 if case["Name"] == f"{n}_{n}":
-                    self.id_scenariogroupe[n] = case["ScenarioGroupId"]
+                    new_cases.append(case)
                     break
             if case["CaseId"] < nstart_id:
-                idx_tba.append(i)
-        
-        for i in idx_tba:
-            new_cases.append(cases[i])
-                
+                new_cases.append(case)
 
-            
         n_id = nstart_id
         for n1 in range(1, self.N+1):
             for n2 in range(1, self.N+1):
-                if n1 != n2:
+                if (n1 != n2 and not diag) or (diag and n1 == n2):
                     new_cases.append(self.create_case(n_id, n1, n2))
                     # print(case)
                     n_id += 1
@@ -245,29 +266,38 @@ class Scenarios():
             json.dump(new_cases, write_file)
                     
     def create_case(self, n_id, n1, n2):
+        
+        descr = f"scenario {n2} with fixed variables from {n1}" if n1 != n2 else f"scenario {n2}"
+        fix = "True" if n1 != n2 else "False"
+        folder = f"{PATH_TIMES}AppData\\GAMSSAVE" if n1 != n2 else ""
+        bool_apply = True if n1 != n2 else False
+        fixyear = "2030" if n1 != n2 else ""
+        filename = f"{n1}_{n1}" if n1 != n2 else ""
+        filepath = f"{PATH_TIMES}AppData\\GAMSSAVE\\{n1}_{n1}.gdx" if n1 != n2 else ""
+        
         dict_case = {"CaseId":n_id,
                      "CreatedOn":"2025-01-07 14:16",
-                     "Description":f"scenario {n2} with fixed variables from {n1}",
+                     "Description":descr,
                      "EditedOn":"2025-01-07 14:16",
                      "EndingYear":"2055",
-                     "FixResultFileName":"True",
-                     "FixResultInfo":{"WorkTimesFolderPath":f"{PATH_TIMES}AppData\\GAMSSAVE",
+                     "FixResultFileName":fix,
+                     "FixResultInfo":{"WorkTimesFolderPath":folder,
                                       "GdxElasticDermands":{"GdxSelectedFile":{"FileName":"",
                                                                                "FilePath":"",
                                                                                "IsSelected":False},
-                                                            "IsApplied":True},
+                                                            "IsApplied":bool_apply},
                                       "GdxIre":{"GdxSelectedFile":{"FileName":"",
                                                                    "FilePath":"",
                                                                    "IsSelected":False},
-                                                "IsApplied":True,
+                                                "IsApplied":bool_apply,
                                                 "RadioSelection":1},
-                                      "GdxUseSolution":{"FixYearsUpto":"2030",
-                                                        "GdxSelectedFile":{"FileName":f"{n1}_{n1}",
-                                                                           "FilePath":f"{PATH_TIMES}AppData\\GAMSSAVE\\{n1}_{n1}.gdx",
-                                                                           "IsSelected":True},
-                                                        "IsApplied":True,
+                                      "GdxUseSolution":{"FixYearsUpto":fixyear,
+                                                        "GdxSelectedFile":{"FileName":filename,
+                                                                           "FilePath":filepath,
+                                                                           "IsSelected":bool_apply},
+                                                        "IsApplied":bool_apply,
                                                         "RadioSelection":1},
-                                      "IsApplyFixResult":True},
+                                      "IsApplyFixResult":bool_apply},
                      "GAMSSourceFolder":"GAMS_SrcTIMES.v4.7.6",
                      "Name":f"{n1}_{n2}",
                      "ParametricGroup":None,
@@ -320,18 +350,28 @@ class Scenarios():
 
 
 
-
 def main(K):
-    uncert = [["CO2prices", ("high", "low", "med")], ["EUROelecPrices", ("high", "low", "med")],]
+    uncert = [["CO2prices", ("high", "low", "med")],
+              ["EUROelecPrices", ("high", "low", "med")],
+              ["biomass", ("high", "low", "med")],
+              ["H2", ("high", "low", "med")],
+              ["Demand", ("high", "low", "med")]]
     N = 1
     for el in uncert:
         N = N * len(el[1])
     print(f"{N} scenarios")
     S = Scenarios(uncert, year_second_stage=2031)
-    # S.create_subXLS_scenarios()
-    # # S.create_subXLS_fixedVars(PATH_OPTIVAR)
-    # S.move_gdx()
-    # S.reload_case()
+    S.create_subXLS_scenarios()
+    input("synchronyize the files in TIMES and reload run manager")
+    S.create_scenarios_diag()
+    input("reload run manager")
+    S.reload_case(diag=True)
+    input("reload run manager and run the N use case of TIMES")
+        
+    S.move_gdx()
+    S.reload_case()
+    
+    input("reload run manager and run the N²-N use case of TIMES")
     
     S.get_costMatrix()
     
