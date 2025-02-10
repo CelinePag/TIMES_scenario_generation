@@ -14,10 +14,10 @@ DICT_ATT_TO_BND = {"VAR_Act":"ACT_BND", "VAR_Cap":"CAP_BND", "VAR_Ncap":"NCAP_BN
                    "VAR_Cumcst":"REG_CUMCST", "VAR_Sin":"STGIN_BND", "VAR_Sout":"STGOUT_BND"}
 
 class ExcelTIMES:
-    def __init__(self, wb_name, ws_name):
+    def __init__(self, wb_name, ws_name, data_only):
         self.wb_name = wb_name
         try:
-            self.wb = load_workbook(wb_name , data_only=True)
+            self.wb = load_workbook(wb_name , data_only=data_only)
         except FileNotFoundError:
             self.wb = Workbook()
         try:
@@ -37,6 +37,28 @@ class ExcelTIMES:
             for j, value2 in enumerate(value):
                 self.ws.cell(column=j+1, row=self.row_nb+1+i, value=value2)
         self.row_nb += 1 + len(header)
+
+
+
+class ExcelScenarios(ExcelTIMES):
+    def write_K_scenarios(self, new_scenarios):
+        # new_scenarios = [1,3,8,20]
+        self.list_24 = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                        [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
+                        [1, 2, 3, 4, 13, 14, 15, 16],
+                        [5, 6, 7, 8, 17, 18, 19, 20],
+                        [9, 10, 11, 12, 21, 22, 23, 24],
+                        [1, 2, 5, 6, 9, 10, 13, 14, 17, 18, 21, 22],
+                        [3, 4, 7, 8, 11, 12, 15, 16, 19, 20, 23, 24],
+                        [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23],
+                        [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]]
+        self.rows = [1,3,6,7,8,11,13,16,18]
+        for i, l in enumerate(self.list_24):
+            txt = "0,99,100"
+            for j, s in enumerate(new_scenarios):
+                if s in l:
+                    txt += f",{j+1}"
+            self.ws.cell(column=1, row=self.rows[i], value=txt)
 
 
 class ExcelSettings(ExcelTIMES):

@@ -17,18 +17,19 @@ import json
 
 
 
+
 # FOLDER_SUBXLS = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_original\IFE-NO-2024.08.27_original\SuppXLS"
 # FOLDER_SUBXLS = r"C:\Users\celinep\Documents\GitHub\TIMES_scenario_generation\SuppXLS"
 
-PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\\"
+PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplifiedTS2\IFE-NO-2024.08.27_simplifiedTS2\\"
 
 FOLDER_SUBXLS = f"{PATH_TIMES}SuppXLS"
-PATH_OPTIVAR = f"{PATH_TIMES}Exported_files\010925_104244412.csv"
-PATH_OBJ = f"{PATH_TIMES}Exported_files\\010925_104244412.csv"
 PATH_UNCERTAINTIES = f"{PATH_TIMES}uncertainties.xlsx"
-PATH_GDX = r"C:\Veda\GAMS_WrkTIMES\UC8"
+PATH_GDX = r"C:\Veda\GAMS_WrkTIMES\Stocha"
 PATH_CASES = f"{PATH_TIMES}AppData\Cases.json"
 PATH_GROUPS = f"{PATH_TIMES}AppData\Groups.json"
+PATH_SETTINGS = f"{PATH_TIMES}SysSettings.xlsx"
+PATH_SCENARIOS = f"{PATH_TIMES}SuppXLS\\" + "xxScen_stocha_uncertainties.xlsx"
 
 
 class Uncertainty():
@@ -94,21 +95,21 @@ class Scenario():
         self.dfs = []
         for sh in sheet_names:
             data = pd.read_excel(PATH_UNCERTAINTIES, sheet_name=sh, header=None)
-            col_tbd = []
-            row_tbd = []
-            c_year = []
-            for i, el in enumerate(data.iloc[1]):
-                if type(el) in [float, np.float64, int] and el < year_second_stage:
-                    col_tbd.append(i)
-                elif el in ["Year", "Period", "Vintage"]:
-                    c_year.append(i)
+            # col_tbd = []
+            # row_tbd = []
+            # c_year = []
+            # for i, el in enumerate(data.iloc[1]):
+            #     if type(el) in [float, np.float64, int] and el < year_second_stage:
+            #         col_tbd.append(i)
+            #     elif el in ["Year", "Period", "Vintage"]:
+            #         c_year.append(i)
             
-            for idx, row in data.iterrows():
-                for col in c_year:
-                    if idx > 1 and data.at[idx, col] < year_second_stage:
-                        row_tbd.append(idx)
-            data.drop(col_tbd,axis=1,inplace=True)
-            data.drop(row_tbd,axis=0,inplace=True)
+            # for idx, row in data.iterrows():
+            #     for col in c_year:
+            #         if idx > 1 and data.at[idx, col] < year_second_stage:
+            #             row_tbd.append(idx)
+            # data.drop(col_tbd,axis=1,inplace=True)
+            # data.drop(row_tbd,axis=0,inplace=True)
             self.dfs.append({"sheet_name":sh, "df":data})
         #save it to the 'new_tab' in destfile
         # data.to_excel(destfile, sheet_name='new_tab')
@@ -132,14 +133,7 @@ class Scenarios():
     def create_subXLS_scenarios(self):
         # self.get_old_values_uncertainties()
         n = 1
-        all_uncert = [[f"{u[0]}_{ur}" for ur in u[1]] for u in self.uncert]
-        combinations = all_uncert[0]
-        if len(all_uncert) > 1:
-            for i in range(1, len(all_uncert)):
-                combinations = list(itertools.product(combinations, all_uncert[i]))
-        print(combinations)
-        
-            
+        combinations = get_combination(self.uncert)
         for s in combinations:
             # uncertainties = self.create_uncertainties(self.routine)
             S = Scenario(s, self.year_second_stage)
@@ -198,7 +192,6 @@ class Scenarios():
     def create_scenarios_diag(self):
         with open(PATH_GROUPS, mode="r", encoding="utf-8") as read_file:
             scenarios = json.load(read_file)
-        
         nstart_id = 1000
         new_scenarios = []
         example = None
@@ -206,11 +199,11 @@ class Scenarios():
             if sce["GroupName"] == "Base":
                 example = sce
                 new_scenarios.append(sce)
-                break
+            elif sce["GroupType"] != "Scenario" or sce["GroupName"] == "Base_uncertainty":
+                new_scenarios.append(sce)
         for n in range(1, self.N+1):
             scen_n = self.add_scenario_n(n, n+nstart_id, example)
             new_scenarios.append(scen_n)
-        
         with open(PATH_GROUPS, mode="w", encoding="utf-8") as write_file:
             json.dump(new_scenarios, write_file)
 
@@ -218,8 +211,8 @@ class Scenarios():
         new_scenario = {idx:el for idx, el in example.items()}
         new_scenario["GroupName"] = f"{n}_{n}"
         new_scenario["SavedGroupId"] = f"{n_group_id}"
-        new_scenario["Settings"] = new_scenario["Settings"].replace(f"{n}_uncertainty\", \"Checked\": false",
-                                                                    f"{n}_uncertainty\", \"Checked\": true")
+        new_scenario["Settings"] = new_scenario["Settings"].replace(f"\"Name\": \"{n}_uncertainty\", \"Checked\": false",
+                                                                    f"\"Name\": \"{n}_uncertainty\", \"Checked\": true")
         return new_scenario
             
     def move_gdx(self):
@@ -243,29 +236,33 @@ class Scenarios():
                     if sce["GroupName"] == f"{n}_{n}":
                         self.id_scenariogroupe[n] = sce["SavedGroupId"]
                         break
-                    
         nstart_id = 1000        
         new_cases = []
         for i, case in enumerate(cases):
             for n in range(1, self.N+1):
-                if case["Name"] == f"{n}_{n}":
+                if case["Name"] == f"{n}_{n}" and not diag:
                     new_cases.append(case)
                     break
-            if case["CaseId"] < nstart_id:
+            if case["Name"] in ("base_stochastic", "Base"):
                 new_cases.append(case)
-
+            if case["Name"] == "Base":
+                id_region = case["RegionGroupId"]
+                id_properties = case["PropertiesGroupId"]
+                name_region = case["RegionGroup"]
+                name_properties = case["PropertiesGroup"]
+                name_periods = case["PeriodsDefinition"]
         n_id = nstart_id
         for n1 in range(1, self.N+1):
             for n2 in range(1, self.N+1):
                 if (n1 != n2 and not diag) or (diag and n1 == n2):
-                    new_cases.append(self.create_case(n_id, n1, n2))
+                    new_cases.append(self.create_case(n_id, n1, n2, id_region, id_properties, name_region, name_properties, name_periods))
                     # print(case)
                     n_id += 1
         
         with open(PATH_CASES, mode="w", encoding="utf-8") as write_file:
             json.dump(new_cases, write_file)
                     
-    def create_case(self, n_id, n1, n2):
+    def create_case(self, n_id, n1, n2, id_region, id_properties, name_region, name_properties, name_periods):
         
         descr = f"scenario {n2} with fixed variables from {n1}" if n1 != n2 else f"scenario {n2}"
         fix = "True" if n1 != n2 else "False"
@@ -276,9 +273,9 @@ class Scenarios():
         filepath = f"{PATH_TIMES}AppData\\GAMSSAVE\\{n1}_{n1}.gdx" if n1 != n2 else ""
         
         dict_case = {"CaseId":n_id,
-                     "CreatedOn":"2025-01-07 14:16",
+                     "CreatedOn":"2025-01-17 14:16",
                      "Description":descr,
-                     "EditedOn":"2025-01-07 14:16",
+                     "EditedOn":"2025-01-17 14:16",
                      "EndingYear":"2055",
                      "FixResultFileName":fix,
                      "FixResultInfo":{"WorkTimesFolderPath":folder,
@@ -302,11 +299,11 @@ class Scenarios():
                      "Name":f"{n1}_{n2}",
                      "ParametricGroup":None,
                      "ParametricGroupId":None,
-                     "PeriodsDefinition":"msy09_2055",
-                     "PropertiesGroup":"DefaultProperties",
-                     "PropertiesGroupId":269,
-                     "RegionGroup":"AllRegion",
-                     "RegionGroupId":268,
+                     "PeriodsDefinition":name_periods,
+                     "PropertiesGroup":name_properties,
+                     "PropertiesGroupId":id_properties,
+                     "RegionGroup":name_region,
+                     "RegionGroupId":id_region,
                      "ScenarioGroup":f"{n2}_{n2}",
                      "ScenarioGroupId":self.id_scenariogroupe[n2], # get id scenario group
                      "Solver":"cplex",
@@ -339,47 +336,109 @@ class Scenarios():
     #         e.close()
 
 
-    def get_costMatrix(self): 
-        self.df_obj = pd.read_csv(PATH_OBJ, sep=";", )
+    def get_costMatrix(self, file, coeff=1): 
+        self.df_obj = pd.read_csv(f"{PATH_TIMES}Exported_files\\{file}.csv", sep=";", )
         self.cost_matrix = np.empty(shape=(self.N, self.N), dtype='object')
         for idx, row in self.df_obj.iterrows():
-            i = int(row["Scenario"].split("_")[0])-1
-            j = int(row["Scenario"].split("_")[1])-1
-            self.cost_matrix[i,j] = float(row["Pv"].replace(",", "."))
+            if "_" in row["Scenario"] and row["Scenario"].split("_")[0] != "base":
+                i = int(row["Scenario"].split("_")[0])-1
+                j = int(row["Scenario"].split("_")[1])-1
+                if i < self.N and j < self.N:
+                    self.cost_matrix[i,j] = float(row["Pv"].replace(",", "."))*coeff
 
 
+def get_combination(uncert_list):
+    all_uncert = [[f"{u[0]}_{ur}" for ur in u[1]] for u in uncert_list]
+    combinations = all_uncert[0]
+    if len(all_uncert) > 1:
+        for i in range(1, len(all_uncert)):
+            combinations = list(itertools.product(combinations, all_uncert[i]))
+            if i > 1:
+                for i in range(len(combinations)):
+                    combinations[i] = [el for el in combinations[i][0]] + [combinations[i][-1]]
+    return combinations
 
+def write_scenarios_SP(scenarios, N=24, style="CSSC"):
+    K = len(scenarios)
+    sows = {j+1:len(item)/N for j, (key,item) in enumerate(scenarios.items())}
+    stages = {2:2030}
+    
+    path = f"{FOLDER_SUBXLS}\Scen_stocha_uncertainties_{style}_{K}.xlsx"
+    shutil.copyfile(PATH_SCENARIOS, path)
+    
+    sett = wf.ExcelSettings(path, ws_name="stochastic", data_only=False)
+    sett.SOW(stages, sows)
+    sett.close()
+    
+    ws_s = wf.ExcelScenarios(path, "source_scenarios", data_only=False)
+    ws_s.write_K_scenarios(scenarios.keys())
+    ws_s.close()
+    
 
-def main(K):
-    uncert = [["CO2prices", ("high", "low", "med")],
-              ["EUROelecPrices", ("high", "low", "med")],
-              ["biomass", ("high", "low", "med")],
-              ["H2", ("high", "low", "med")],
-              ["Demand", ("high", "low", "med")]]
+def get_num(uncert, combi):
+    for u in uncert:
+        for l in u[1]:
+            print(u[0],l)
+            num = []
+            for i,c in enumerate(combi):
+                if u[0] + "_" + l in c:
+                    num.append(i+1)
+            print(num)
+    
+
+def main(uncert):
+    
     N = 1
     for el in uncert:
         N = N * len(el[1])
     print(f"{N} scenarios")
-    S = Scenarios(uncert, year_second_stage=2031)
-    S.create_subXLS_scenarios()
-    input("synchronyize the files in TIMES and reload run manager")
-    S.create_scenarios_diag()
-    input("reload run manager")
-    S.reload_case(diag=True)
-    input("reload run manager and run the N use case of TIMES")
-        
-    S.move_gdx()
-    S.reload_case()
     
-    input("reload run manager and run the N²-N use case of TIMES")
-    
-    S.get_costMatrix()
-    
-    # get representatives and pairing
 
-    C = cl.ClusterMIP(K)
-    C.construct_model(S.cost_matrix)
-    C.solve_model()
+    S = Scenarios(uncert, year_second_stage=2031)
+    # S.create_subXLS_scenarios()
+    # input("synchronyize the files in TIMES and reload run manager")
+    # S.create_scenarios_diag()
+    # input("reload run manager")
+    # S.reload_case(diag=True)
+    # input("reload run manager and run the N use case of TIMES")
+        
+    # S.move_gdx()
+    # S.reload_case()
+    
+    # input("reload run manager and run the N²-N use case of TIMES")
+    # nfile = input("save export, name file:")
+    nfile = "012125_193848255"
+    S.get_costMatrix(nfile, coeff=10**-5)
+        
+    #### get representatives and pairing
+    # df = pd.DataFrame(columns=[f"{i}" for i in range(1, N+1)])
+    for K in [10,15]:#,10,15,20]:
+        for i in range(1,2):
+            scenarios1 = cl.ClusterMIP(K).get_scenarios(S.cost_matrix, new=True)
+            scenarios2 = cl.ClusterMedoid(K).get_scenarios(get_combination(uncert))
+            scenarios3 = cl.ClusterRandom(K).get_scenarios(N)
+            # print(scenarios1)
+            # print(scenarios2)
+            
+            write_scenarios_SP(scenarios1, N=N, style="CSSC")
+            write_scenarios_SP(scenarios2, N=N, style="medoid")
+            write_scenarios_SP(scenarios3, N=N, style=f"random{i}")
+
+        # df = pd.concat([df, pd.DataFrame(res_K, index=[K])])
+            
+            
+    # df.to_csv('output_clustering.csv', index=True) 
+    
 
 if __name__ == "__main__":
-    main(K=2)
+    uncert = [["WIND", ("high", "low")],
+              ["CO2TAX", ("high", "med", "low")],
+               # ["EUROelecPrices", ("high", "low", "med")],
+              # ["biomass", ("high", "med")],
+              ["HYDROGEN", ("high","low")],
+               ["DMD", ("high", "low")]]
+    
+    
+    
+    
+    main(uncert)
