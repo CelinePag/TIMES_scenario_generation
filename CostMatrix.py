@@ -29,7 +29,7 @@ PATH_GDX = r"C:\Veda\GAMS_WrkTIMES\Stocha"
 PATH_CASES = f"{PATH_TIMES}AppData\Cases.json"
 PATH_GROUPS = f"{PATH_TIMES}AppData\Groups.json"
 PATH_SETTINGS = f"{PATH_TIMES}SysSettings.xlsx"
-PATH_SCENARIOS = f"{PATH_TIMES}SuppXLS\\" + "xxScen_stocha_uncertainties.xlsx"
+PATH_SCENARIOS = f"{PATH_TIMES}SuppXLS\\" + "Scen_stocha_uncertainties.xlsx"
 
 
 class Uncertainty():
@@ -339,6 +339,10 @@ class Scenarios():
     def get_costMatrix(self, file, coeff=1): 
         self.df_obj = pd.read_csv(f"{PATH_TIMES}Exported_files\\{file}.csv", sep=";", )
         self.cost_matrix = np.empty(shape=(self.N, self.N), dtype='object')
+        print(self.df_obj.head(5))
+        
+        
+        
         for idx, row in self.df_obj.iterrows():
             if "_" in row["Scenario"] and row["Scenario"].split("_")[0] != "base":
                 i = int(row["Scenario"].split("_")[0])-1
@@ -393,6 +397,7 @@ def main(uncert):
         N = N * len(el[1])
     print(f"{N} scenarios")
     
+    
 
     S = Scenarios(uncert, year_second_stage=2031)
     # S.create_subXLS_scenarios()
@@ -407,20 +412,28 @@ def main(uncert):
     
     # input("reload run manager and run the N²-N use case of TIMES")
     # nfile = input("save export, name file:")
-    nfile = "012125_193848255"
-    S.get_costMatrix(nfile, coeff=10**-5)
-        
-    #### get representatives and pairing
-    # df = pd.DataFrame(columns=[f"{i}" for i in range(1, N+1)])
-    for K in [10,15]:#,10,15,20]:
+    nfile = "021125_134329569"
+    # print()
+    S.get_costMatrix(nfile, coeff=10**-5)       
+    # #### get representatives and pairing
+    # # df = pd.DataFrame(columns=[f"{i}" for i in range(1, N+1)])
+    for K in [3]:#,10,15,20]:
         for i in range(1,2):
+            print(S.cost_matrix.astype(int))
             scenarios1 = cl.ClusterMIP(K).get_scenarios(S.cost_matrix, new=True)
+            scenarios1b = cl.ClusterMIP(K).get_scenarios(S.cost_matrix, new=False)
+            scenarios1c = cl.ClusterMedoidDistance(K).get_scenarios(S.cost_matrix)
             scenarios2 = cl.ClusterMedoid(K).get_scenarios(get_combination(uncert))
             scenarios3 = cl.ClusterRandom(K).get_scenarios(N)
-            # print(scenarios1)
-            # print(scenarios2)
+            print(scenarios1)
+            print(scenarios1b)
+            print(scenarios1c)
+            print(scenarios2)
+            print(scenarios3)
             
             write_scenarios_SP(scenarios1, N=N, style="CSSC")
+            write_scenarios_SP(scenarios1b, N=N, style="CSSC_ori")
+            write_scenarios_SP(scenarios1c, N=N, style="medoid_distance")
             write_scenarios_SP(scenarios2, N=N, style="medoid")
             write_scenarios_SP(scenarios3, N=N, style=f"random{i}")
 
@@ -437,6 +450,10 @@ if __name__ == "__main__":
               # ["biomass", ("high", "med")],
               ["HYDROGEN", ("high","low")],
                ["DMD", ("high", "low")]]
+    uncert = [["CO2TAX", ("high", "low")],
+              ["HYDROGEN", ("high","low")],
+               ["DMD", ("high", "low")]]
+    
     
     
     
