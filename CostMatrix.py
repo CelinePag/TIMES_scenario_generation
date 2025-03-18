@@ -129,6 +129,21 @@ class Scenarios():
         self.uncert = uncert
         self.year_second_stage = year_second_stage
         self.id_scenariogroupe = {}
+        self.update_SP_file()
+
+    def update_SP_file(self):
+        combinations = get_combination(self.uncert)
+        sows = {j+1:1/self.N for j in range(self.N)}
+        stages = {2:2030}
+        
+        sett = wf.ExcelSettings(PATH_SCENARIOS, ws_name="stochastic", data_only=False)
+        sett.SOW(stages, sows)
+        sett.close()
+        
+        ws_s = wf.ExcelScenarios(PATH_SCENARIOS, "source_scenarios", data_only=False, delete_old=False)
+        ws_s.write_scenarios(combinations, new_scenarios=False)
+        ws_s.close()
+        
 
     def create_subXLS_scenarios(self):
         # self.get_old_values_uncertainties()
@@ -374,10 +389,9 @@ def write_scenarios_SP(scenarios, N=24, style="CSSC"):
     sett.SOW(stages, sows)
     sett.close()
     
-    ws_s = wf.ExcelScenarios(path, "source_scenarios", data_only=False)
-    ws_s.write_K_scenarios(scenarios.keys())
+    ws_s = wf.ExcelScenarios(path, "source_scenarios", data_only=False, delete_old=False)
+    ws_s.write_scenarios(scenarios.keys(), new_scenarios=True)
     ws_s.close()
-    
 
 def get_num(uncert, combi):
     for u in uncert:
@@ -397,7 +411,7 @@ def main(uncert):
         N = N * len(el[1])
     print(f"{N} scenarios")
     
-    
+    print(get_combination(uncert))
 
     S = Scenarios(uncert, year_second_stage=2031)
     # S.create_subXLS_scenarios()
@@ -412,30 +426,31 @@ def main(uncert):
     
     # input("reload run manager and run the N²-N use case of TIMES")
     # nfile = input("save export, name file:")
-    nfile = "021125_134329569"
-    # print()
-    S.get_costMatrix(nfile, coeff=10**-5)       
-    # #### get representatives and pairing
-    # # df = pd.DataFrame(columns=[f"{i}" for i in range(1, N+1)])
-    for K in [3]:#,10,15,20]:
-        for i in range(1,2):
-            print(S.cost_matrix.astype(int))
-            scenarios1 = cl.ClusterMIP(K).get_scenarios(S.cost_matrix, new=True)
-            scenarios1b = cl.ClusterMIP(K).get_scenarios(S.cost_matrix, new=False)
-            scenarios1c = cl.ClusterMedoidDistance(K).get_scenarios(S.cost_matrix)
-            scenarios2 = cl.ClusterMedoid(K).get_scenarios(get_combination(uncert))
-            scenarios3 = cl.ClusterRandom(K).get_scenarios(N)
-            print(scenarios1)
-            print(scenarios1b)
-            print(scenarios1c)
-            print(scenarios2)
-            print(scenarios3)
+    # nfile = "021125_134329569"
+    # # # print()
+    # S.get_costMatrix(nfile, coeff=10**-5)       
+    # # # #### get representatives and pairing
+    # # # # df = pd.DataFrame(columns=[f"{i}" for i in range(1, N+1)])
+    # for K in [3]:#,10,15,20]:
+    #     for i in range(1,2):
+    #         print(S.cost_matrix.astype(int))
+    #         scenarios1 = cl.ClusterMIP(K).get_scenarios(S.cost_matrix, new=True)
+    #         scenarios1b = cl.ClusterMIP(K).get_scenarios(S.cost_matrix, new=False)
+    #         scenarios1c = cl.ClusterMedoidDistance(K).get_scenarios(S.cost_matrix)
+    #         scenarios2 = cl.ClusterMedoid(K).get_scenarios(get_combination(uncert))
+    #         scenarios3 = cl.ClusterRandom(K).get_scenarios(N)
+    #         print(scenarios1)
+    #         print(scenarios1b)
+    #         print(scenarios1c)
+    #         print(scenarios2)
+    #         print(scenarios3)
             
-            write_scenarios_SP(scenarios1, N=N, style="CSSC")
-            write_scenarios_SP(scenarios1b, N=N, style="CSSC_ori")
-            write_scenarios_SP(scenarios1c, N=N, style="medoid_distance")
-            write_scenarios_SP(scenarios2, N=N, style="medoid")
-            write_scenarios_SP(scenarios3, N=N, style=f"random{i}")
+            
+    #         write_scenarios_SP(scenarios1, N=N, style="CSSC")
+    #         write_scenarios_SP(scenarios1b, N=N, style="CSSC_ori")
+    #         write_scenarios_SP(scenarios1c, N=N, style="medoid_distance")
+    #         write_scenarios_SP(scenarios2, N=N, style="medoid")
+    #         write_scenarios_SP(scenarios3, N=N, style=f"random{i}")
 
         # df = pd.concat([df, pd.DataFrame(res_K, index=[K])])
             
@@ -444,16 +459,15 @@ def main(uncert):
     
 
 if __name__ == "__main__":
-    uncert = [["WIND", ("high", "low")],
-              ["CO2TAX", ("high", "med", "low")],
-               # ["EUROelecPrices", ("high", "low", "med")],
-              # ["biomass", ("high", "med")],
-              ["HYDROGEN", ("high","low")],
-               ["DMD", ("high", "low")]]
-    uncert = [["CO2TAX", ("high", "low")],
-              ["HYDROGEN", ("high","low")],
-               ["DMD", ("high", "low")]]
     
+    # Possible uncertainties: WIND, CO2TAX, HYDROGEN, DMD, ELEC, BIOMASS, LEARN, EMISSIONCAP, SOCIETE_CHANGE
+    # For each uncertainty, possible levels: high, low, med
+
+    uncert = []
+    for u in ["WIND", "CO2TAX", "HYDROGEN", "DMD", "ELEC", "BIOMASS"]:#, "LEARN", "EMISSIONCAP", "SOCIETE_CHANGE"]:
+        uncert.append([u, []])
+        for lvl in ["high", "low"]:
+            uncert[-1][1].append(lvl)
     
     
     

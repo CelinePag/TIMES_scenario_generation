@@ -10,15 +10,21 @@ import pyomo.opt   # we need SolverFactory,SolverStatus,TerminationCondition
 from pyomo.environ import ConcreteModel, Var, Constraint, NonNegativeReals, Binary, Reals, minimize, Objective
 from pyomo.util.infeasible import log_infeasible_constraints
 from pyclustering.cluster.kmedoids import kmedoids
+from pyclustering.cluster.kmeans import kmeans
+from pyclustering.cluster.center_initializer import kmeans_plusplus_initializer
+from sklearn.cluster import KMeans
+
+
 import random
 
 import logging
 import numpy as np
-
+import numpy.linalg as LA
 
 class ClusterScenario():
     def __init__(self, K):
         self.scenarios = {}
+        # ex: {1:[1,2,3], 4:[4]} for K=2 and N=4
         self.K = K
     
     def compute_scenarios(self,*args, **kwargs):
@@ -28,6 +34,123 @@ class ClusterScenario():
         self.compute_scenarios(*args, **kwargs)
         return self.scenarios
 
+
+class ClusterNormalizedSpectral(ClusterScenario):
+    def compute_scenarios(self, cost_matrix, e=None, M=None):
+        self.cost_matrix = cost_matrix
+        self.N = len(cost_matrix)
+        list_n = [n for n in range(1, self.N+1)]
+        list_nn = [(n,j) for n in range(1, self.N+1) for j in range(1, self.N+1)]
+        self.distance_matrix = np.empty(shape=(self.N, self.N), dtype="object")
+        for i in list_n:
+            for j in list_n:
+                
+                if (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]) <0:
+                    print(i,j)
+                    print((self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]))
+                    print(self.cost_matrix[i-1,j-1] , self.cost_matrix[j-1,j-1] , self.cost_matrix[j-1,i-1] , self.cost_matrix[i-1,i-1] )
+                self.distance_matrix[i-1,j-1] = (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]) # >= 0
+        
+        # print(self.distance_matrix)
+        # compute edge set E:
+        self.E = []
+
+            # either E = {(s,t): d(s,t) < e} for small parsameter e (e-neighbourhood graph)
+        if e is not None:
+            for i,j in list_nn:
+                if  self.distance_matrix[i-1,j-1] < e:
+                    self.E.append([i,j])
+            
+            # or E = {(s,t) in SxS: s~t}  where s~t iif s->t and t->s and s->t if d(s,t) one of the M smallest elements of {d(s,u):u!=s} (M-nearest neighbour grap)
+        elif M is not None:
+            res = {}
+            for i in list_n:
+                res[i] = list(np.argsort([self.distance_matrix[i-1,j-1] for j in list_n])[:M+1])
+                res[i] = [a-1 for a in res[i]]
+                if i in res[i]:
+                    res[i] = [a for a in res[i] if a != i]
+                else:
+                    res[i] = res[i][:-1]
+                for j in range(1, i):
+                    if j in res[i] and i in res[j]:
+                        self.E.append([i,j])
+                        self.E.append([j,i])
+        else:
+            raise ValueError
+            
+        # compute affinity matrix : A such that A_si,sj = 1 if (si,sj) in E, 0 otherwise
+        self.A = np.empty(shape=(self.N, self.N), dtype="float")
+        for i,j in list_nn:
+            self.A[i-1,j-1] = 1 if [i,j] in self.E else 0
+        # print("A",self.A)
+        
+        self.W = np.empty(shape=(self.N, self.N), dtype="float")
+        for i,j in list_nn:
+            self.W[i-1,j-1] = self.distance_matrix[i-1,j-1] if [i,j] in self.E else 0
+        # print("W",self.W)
+
+        # compute degree matrix of the graph: diagonal matrix D such that d_sj = sum_t in S(A_sj,t)
+        self.D = np.zeros((self.N, self.N), dtype="float")
+
+        for i in list_n:
+            self.D[i-1,i-1] = sum(self.A[i-1, j-1] for j in list_n)
+        # print("D", self.D)
+
+        # compute the random walk Laplacian Lrw such that Lrw = I - D^(-1)A
+        self.Lrw = np.identity(self.N) - np.multiply(LA.inv(self.D),self.A)
+        # print("Lrw", self.Lrw)
+
+        # compute the eigenvalues u1, ...,uk corresponding to the k lowest eigenvalues of Lrw
+        
+        eigenvalues, eigenvectors = LA.eig(self.Lrw)
+        index_k = list(np.argsort(eigenvalues)[:self.K])
+        
+        U = np.zeros((self.N, self.K), dtype="float") # K vectors of size N each -> size N x K
+        for n in range(self.N):
+            for k in range(self.K):
+                U[n,k] = eigenvectors[index_k[k]][n]
+        # print(U)
+        
+        # For each s in S define ys in R^k by ys(j) = uj(s)
+        self.y = U.transpose()
+        # self.y =  np.zeros((self.K, self.N), dtype="float")
+        # for k in range(self.K):
+        #     for n in range(self.N):
+        #         self.y[n,k] = eigenvectors[index_k[k]][n]
+        # self.y = np.array([U[i-1, :] for i in list_n]) # size K x N
+        # print(self.y)
+        # perform the k-means algorithm to partition the ys into k clusters H1, ..., Hk
+        # print(self.y[:,:self.K])
+        
+        
+        kmeans = KMeans(n_clusters=self.K)
+        estimator = kmeans.fit(U)
+        print(kmeans.labels_)
+        clusters = [[] for k in range(self.K)]
+
+        for i,l in enumerate(kmeans.labels_):
+            clusters[l].append(i+1)
+        print(clusters)
+        # kmeans_instance = kmeans(U, self.y[:,:self.K])
+        # kmeans_instance.process()
+        # clusters = kmeans_instance.get_clusters()
+        # final_centers = kmeans_instance.get_centers()
+        # print(clusters)
+        # print(final_centers)
+        
+        # Return the partition C1,...,Cn on S defined by s in Cj iif ys in Hj
+        self.clusters = [[] for i in range(self.K)]
+        
+        for i in list_n:
+            for j in range(self.K):
+                if i in clusters[j]:
+                    self.clusters[j].append(i)
+        
+        print(self.clusters)
+        
+        
+        
+        
 
 
 class ClusterMedoid(ClusterScenario):
@@ -51,7 +174,7 @@ class ClusterMedoid(ClusterScenario):
         # create instance of K-Medoids algorithm
         kmedoids_instance = kmedoids(sample, initial_medoids)
         # run cluster analysis and obtain results
-        kmedoids_instance.process();
+        kmedoids_instance.process()
         clusters = kmedoids_instance.get_clusters()
         medoids = kmedoids_instance.get_medoids()
         # show allocated clusters

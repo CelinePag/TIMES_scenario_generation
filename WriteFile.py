@@ -14,7 +14,7 @@ DICT_ATT_TO_BND = {"VAR_Act":"ACT_BND", "VAR_Cap":"CAP_BND", "VAR_Ncap":"NCAP_BN
                    "VAR_Cumcst":"REG_CUMCST", "VAR_Sin":"STGIN_BND", "VAR_Sout":"STGOUT_BND"}
 
 class ExcelTIMES:
-    def __init__(self, wb_name, ws_name, data_only):
+    def __init__(self, wb_name, ws_name, data_only, delete_old=True):
         self.wb_name = wb_name
         try:
             self.wb = load_workbook(wb_name , data_only=data_only)
@@ -25,7 +25,8 @@ class ExcelTIMES:
         except KeyError:
             self.wb.create_sheet(ws_name)
             self.ws = self.wb[ws_name]
-        self.ws.delete_rows(1, self.ws.max_row)
+        if delete_old:
+            self.ws.delete_rows(1, self.ws.max_row)
         self.row_nb = 1
     
     def close(self):
@@ -40,25 +41,24 @@ class ExcelTIMES:
 
 
 
-class ExcelScenarios(ExcelTIMES):
-    def write_K_scenarios(self, new_scenarios):
-        # new_scenarios = [1,3,8,20]
-        self.list_24 = [[],
-                        [],
-                        [1, 2, 3, 4],
-                        [],
-                        [5, 6, 7, 8,],
-                        [1,2,5,6],
-                        [3,4,7,8],
-                        [1,3,5,7],
-                        [2, 4, 6, 8,]]
-        self.rows = [1,3,6,7,8,11,13,16,18]
-        for i, l in enumerate(self.list_24):
-            txt = "0,99,100"
-            for j, s in enumerate(new_scenarios):
-                if s in l:
-                    txt += f",{j+1}"
-            self.ws.cell(column=1, row=self.rows[i], value=txt)
+class ExcelScenarios(ExcelTIMES):   
+    def write_scenarios(self, scenarios, new_scenarios=True):
+        col_level = 1
+        col_var = 2
+        col_full_scenarios = 3
+        for row in range(1, 50):
+            if self.ws.cell(row=row, column=col_level).value is None:
+                var = self.ws.cell(row=row, column=col_var).value
+            else:
+                level = self.ws.cell(row=row, column=col_level).value
+                txt = "0,99,100"
+                for j, s in enumerate(scenarios):
+                    if (f"{var}_{level.lower()}" in str(s) and not new_scenarios)\
+                        or (str(s) in str(self.ws.cell(row=row, column=col_full_scenarios).value).split(",") and new_scenarios):
+                        txt += f",{j+1}"
+                self.ws.cell(column=col_var, row=row, value=txt)
+                if not new_scenarios:
+                    self.ws.cell(column=col_full_scenarios, row=row, value=txt)
 
 
 class ExcelSettings(ExcelTIMES):
