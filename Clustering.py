@@ -5,67 +5,233 @@ Created on Thu Jan  2 20:53:16 2025
 @author: celinep
 """
 
-#Pyomo
-import pyomo.opt   # we need SolverFactory,SolverStatus,TerminationCondition
-from pyomo.environ import ConcreteModel, Var, Constraint, NonNegativeReals, Binary, Reals, minimize, Objective
-from pyomo.util.infeasible import log_infeasible_constraints
-from pyclustering.cluster.kmedoids import kmedoids
-from pyclustering.cluster.kmeans import kmeans
-from pyclustering.cluster.center_initializer import kmeans_plusplus_initializer
-from sklearn.cluster import KMeans
-
-
+# Standard library
+import logging
+import math
 import random
 
-import logging
+# Third-party libraries
+import pandas as pd
 import numpy as np
-import numpy.linalg as LA
+import seaborn as sns
+from matplotlib import pyplot as plt
+from numpy import savetxt, loadtxt
+from pyclustering.cluster.kmedoids import kmedoids
+from sklearn.cluster import SpectralClustering
 
-class ClusterScenario():
-    def __init__(self, K):
-        self.scenarios = {}
-        # ex: {1:[1,2,3], 4:[4]} for K=2 and N=4
-        self.K = K
+# Pyomo
+import pyomo.opt  # we need SolverFactory, SolverStatus, TerminationCondition
+from pyomo.environ import (
+    ConcreteModel,
+    Var,
+    Constraint,
+    NonNegativeReals,
+    Binary,
+    minimize,
+    Objective,
+    maximize
+)
+from pyomo.util.infeasible import log_infeasible_constraints
+
+
+def get_repr_distance(cost_matrix, liste_k):
+    N = len(cost_matrix)
+    K = int(N/2)
+    print(N,K)
     
-    def compute_scenarios(self,*args, **kwargs):
-        pass
+    distance_matrix = np.empty(shape=(N, N), dtype="object")
+    for i in range(N):
+        for j in range(N):
+            distance_matrix[i,j] = abs(cost_matrix[i,i]-cost_matrix[j,j])
+            
+    solos = {k:None for k in liste_k}
+    for K in liste_k:
+        initial_medoids = [k for k in range(K)]
+        kmedoids_instance = kmedoids(distance_matrix, initial_medoids, data_type='distance_matrix')
+        kmedoids_instance.process()
+        clusters = kmedoids_instance.get_clusters()
+        medoids = kmedoids_instance.get_medoids()
+        print(clusters)
+        print(medoids)
+        solos[K] = [m+1 for m in medoids]
+    return solos
+    
+
+
+
+def get_pairs_scenarios(cost_matrix):
+    """ Aim to pair scenarios such that the total distance within pairs is maximized """
+
+    N = len(cost_matrix)
+    K = int(N/2)
+    print(N,K)
+    
+    distance_matrix = np.empty(shape=(N, N), dtype="object")
+    for i in range(N):
+        for j in range(N):
+            distance_matrix[i,j] = abs(cost_matrix[i,i]-cost_matrix[j,j])
+ 
+    model = ConcreteModel()
+    list_n = [n for n in range(1, N+1)]
+    list_nn = [(n,j) for n in range(1, N+1) for j in range(n+1, N+1)]
+    list_nnk = [(n,j,k) for n in range(1, N+1) for j in range(n+1, N+1) for k in range(1, K+1)]
         
-    def get_scenarios(self, *args, **kwargs):
-        self.compute_scenarios(*args, **kwargs)
-        return self.scenarios
+    # the binary variable x_ijk establishes whether or not the pair i,j is in the pair k
+    model.x_nnk = Var(list_nnk, within=Binary)
+    
+
+    # OBJECTIVE -------------------------------------------------------------------------------------
+    def obj(model):
+        return sum(model.x_nnk[(i,j,k)]*distance_matrix[i-1,j-1] for (i,j,k) in list_nnk)
+    model.objective_function = Objective(rule=obj, sense=maximize)
+            
+
+    # CONSTRAINTS ------------------------------------------------------------------------------------
+    def c1rule(model, k): # each cluster got 2 scenarios as a pair
+        return (sum(model.x_nnk[(i,j,k)] for (i,j) in list_nn) == 1)
+    model.C1 = Constraint(range(1, K+1), rule=c1rule)
+
+    def c2rule(model, i): # each scenario is in exactly one pair
+        list_pair_with_i = [(a,b) for (a,b) in list_nn if (a==i or b==i)]
+        return (sum(model.x_nnk[(a,b,k)] for (a,b) in list_pair_with_i for k in range(1,K+1)) == 1)
+    model.C2 = Constraint(list_n, rule=c2rule)
+
+    # SOLVE MODEL -----------------------------------------------------------------------------------
+    opt = pyomo.opt.SolverFactory('gurobi') #gurobi
+    feas_tol = (10**(-2))
+    opt.options['FeasibilityTol'] = feas_tol 
+    results = opt.solve(model, tee=True, 
+                            symbolic_solver_labels=False, #goes faster, but turn to true with errors!
+                            keepfiles=False)  
+    solver_stat = results.solver.status
+    termination_cond = results.solver.termination_condition
+    
+    if (solver_stat == pyomo.opt.SolverStatus.ok) and (
+            termination_cond == pyomo.opt.TerminationCondition.optimal):
+        print('the solution is feasible and optimal')
+    else:
+        log_infeasible_constraints(model)
+        log_infeasible_constraints(model, log_expression=True, log_variables=True)
+        logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.INFO)
+        raise Exception('Solver Status: ', solver_stat, 'Termination Condition: ', termination_cond )
+    print('Solution time: ' + str(results.solver.time))
+    
+    scenarios = {}
+    for k in range(1, K+1):
+        for (i,j) in list_nn:
+            if 1-feas_tol <= model.x_nnk[(i,j,k)].value <= 1+feas_tol:
+                scenarios[k] = (i,j)
+                break
+    return scenarios
 
 
-class ClusterNormalizedSpectral(ClusterScenario):
-    def compute_scenarios(self, cost_matrix, e=None, M=None):
+def cluster_first_stage_solutions(file_results_veda, file_matrix='matrix_corr_first_stage.csv',
+                                   coeff=0.9995, K=None,
+                                     new_file_matrix=True, year_second_stage=2035):
+    """
+        Cluster scenarios together based on similarity of first stage solutions
+    """
+
+    # Create a new file for the matrix. Turn to False to save time in debug
+    if new_file_matrix:
+        matrix_corr = np.empty(shape=(len(scenarios), len(scenarios)), dtype='float')
+
+        df = pd.read_csv(file_results_veda, sep=";", )
+        scenarios = df["Scenario"].unique()
+
+        # Clean the df to keep only interesting variables
+        df.drop(df[(~df.Attribute.str.contains('VAR')) | (df.Attribute.str.endswith('M'))].index, inplace = True)
+        df["Pv"] = pd.to_numeric(df["Pv"].str.replace(",", "."))
+        df = df[df["Period"] <= year_second_stage]
+        
+        # Divide the results in dfs for each different scenarios
+        dfs = [df[df["Scenario"] == s][["Attribute", "Commodity", "Process", "Region", "Timeslice", "Period", "Pv"]].rename(columns={"Pv":f"Pv_{str(i).zfill(2)}"}) for i,s in enumerate(scenarios)]
+        
+        # compare each scenario with one another to get correlation between them
+        for i, df_i in enumerate(dfs):
+            matrix_corr[i,i] = 1 # correlation of 1 in diagonal
+            for j, df_j in enumerate(dfs[i+1:]):
+                df_ij = pd.merge(df_i, df_j, on=["Attribute", "Commodity", "Process", "Region", "Timeslice", "Period"], how='outer')[[f"Pv_{str(i).zfill(2)}", f"Pv_{str(j).zfill(2)}"]]
+                corr = df_ij.corr()
+                matrix_corr[i,j] = corr.at[f"Pv_{str(i).zfill(2)}", f"Pv_{str(j).zfill(2)}"]
+                matrix_corr[j,i] = corr.at[f"Pv_{str(i).zfill(2)}", f"Pv_{str(j).zfill(2)}"]
+        savetxt(file_matrix, matrix_corr, delimiter=',')
+    
+    matrix_corr = loadtxt(file_matrix, delimiter=',')
+    
+    sns.heatmap(matrix_corr)
+    plt.show()
+
+
+    # 1st method: put together scenarios with correlation > coeff, unknown number of clusters
+    if coeff is not None:
+        used = []
+        cluster = {}
+        for i in range(len(matrix_corr)):
+            if i not in used:
+                cluster[i+1] = [i+1]
+                used.append(i)
+                for j in range(i+1, len(matrix_corr)):
+                    if j not in used and matrix_corr[i,j] > coeff:
+                        cluster[i+1].append(j+1)
+                        used.append(j)
+    
+    # 2nd method: cluster scenarios with spectral clustering to from K cluster
+    elif K is not None:
+        clustering = SpectralClustering(n_clusters=K, affinity="precomputed").fit(matrix_corr)
+        cluster = {i:[] for i in range(K)}
+        for i,l in enumerate(clustering.labels_):
+            cluster[l].append(i+1)        
+    
+    # get best representative for each cluster
+    cluster_repr = {}
+    for item in cluster.values():
+        means = [np.mean([matrix_corr[i-1,j-1] for j in item]) for i in item]
+        max_index = np.array(means).argmax()
+        cluster_repr[item[max_index]] = item
+    
+    return cluster_repr
+
+
+
+class ClusterNormalizedSpectral():
+    """ Class based on spectral clustering """
+
+    def __init__(self, cost_matrix):
         self.cost_matrix = cost_matrix
         self.N = len(cost_matrix)
+        self.scenarios = {} # ex: {1:[1,2,3], 4:[4]} for K=2 and N=4
+
+
+    def compute_scenarios(self, K, e=None, M=None):
+        self.K = K
         list_n = [n for n in range(1, self.N+1)]
         list_nn = [(n,j) for n in range(1, self.N+1) for j in range(1, self.N+1)]
-        self.distance_matrix = np.empty(shape=(self.N, self.N), dtype="object")
+        distance_matrix = np.empty(shape=(self.N, self.N), dtype="object")
         for i in list_n:
             for j in list_n:
-                
-                if (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]) <0:
-                    print(i,j)
-                    print((self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]))
-                    print(self.cost_matrix[i-1,j-1] , self.cost_matrix[j-1,j-1] , self.cost_matrix[j-1,i-1] , self.cost_matrix[i-1,i-1] )
-                self.distance_matrix[i-1,j-1] = (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]) # >= 0
+                d = (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1])
+                if d/(self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) < -0.05:
+                    print(i, j, d, d/(self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]))
+                    raise ValueError
+                elif d < 0:
+                    d = 0
+                distance_matrix[i-1,j-1] = d # >= 0
         
-        # print(self.distance_matrix)
         # compute edge set E:
         self.E = []
 
             # either E = {(s,t): d(s,t) < e} for small parsameter e (e-neighbourhood graph)
         if e is not None:
             for i,j in list_nn:
-                if  self.distance_matrix[i-1,j-1] < e:
+                if  distance_matrix[i-1,j-1] < e:
                     self.E.append([i,j])
             
             # or E = {(s,t) in SxS: s~t}  where s~t iif s->t and t->s and s->t if d(s,t) one of the M smallest elements of {d(s,u):u!=s} (M-nearest neighbour grap)
         elif M is not None:
             res = {}
             for i in list_n:
-                res[i] = list(np.argsort([self.distance_matrix[i-1,j-1] for j in list_n])[:M+1])
+                res[i] = list(np.argsort([distance_matrix[i-1,j-1] for j in list_n])[:M+1])
                 res[i] = [a-1 for a in res[i]]
                 if i in res[i]:
                     res[i] = [a for a in res[i] if a != i]
@@ -77,102 +243,53 @@ class ClusterNormalizedSpectral(ClusterScenario):
                         self.E.append([j,i])
         else:
             raise ValueError
-            
+        
         # compute affinity matrix : A such that A_si,sj = 1 if (si,sj) in E, 0 otherwise
         self.A = np.empty(shape=(self.N, self.N), dtype="float")
         for i,j in list_nn:
             self.A[i-1,j-1] = 1 if [i,j] in self.E else 0
-        # print("A",self.A)
         
         self.W = np.empty(shape=(self.N, self.N), dtype="float")
         for i,j in list_nn:
-            self.W[i-1,j-1] = self.distance_matrix[i-1,j-1] if [i,j] in self.E else 0
-        # print("W",self.W)
+            self.W[i-1,j-1] = distance_matrix[i-1,j-1] if [i,j] in self.E else 0.00001
 
-        # compute degree matrix of the graph: diagonal matrix D such that d_sj = sum_t in S(A_sj,t)
-        self.D = np.zeros((self.N, self.N), dtype="float")
+        clustering = SpectralClustering(n_clusters=self.K, affinity="precomputed").fit(self.W)
+        clusters = {i:[] for i in range(self.K)}
+        for i,l in enumerate(clustering.labels_):
+            clusters[l].append(i+1)        
+        
+        
+        self.scenarios = {}
+        #get best representative of each cluster
+        for _, item in clusters.items():
+            means = [np.mean([self.W[i-1,j-1] for j in item]) for i in item]
+            max_index = np.array(means).argmax()
+            self.scenarios[item[max_index]] = item
 
-        for i in list_n:
-            self.D[i-1,i-1] = sum(self.A[i-1, j-1] for j in list_n)
-        # print("D", self.D)
+    
+class ClusterMedoid():
+    """ """
 
-        # compute the random walk Laplacian Lrw such that Lrw = I - D^(-1)A
-        self.Lrw = np.identity(self.N) - np.multiply(LA.inv(self.D),self.A)
-        # print("Lrw", self.Lrw)
+    def __init__(self, combi):
+        self.scenarios = {} # ex: {1:[1,2,3], 4:[4]} for K=2 and N=4
+        self.combi = combi
 
-        # compute the eigenvalues u1, ...,uk corresponding to the k lowest eigenvalues of Lrw
-        
-        eigenvalues, eigenvectors = LA.eig(self.Lrw)
-        index_k = list(np.argsort(eigenvalues)[:self.K])
-        
-        U = np.zeros((self.N, self.K), dtype="float") # K vectors of size N each -> size N x K
-        for n in range(self.N):
-            for k in range(self.K):
-                U[n,k] = eigenvectors[index_k[k]][n]
-        # print(U)
-        
-        # For each s in S define ys in R^k by ys(j) = uj(s)
-        self.y = U.transpose()
-        # self.y =  np.zeros((self.K, self.N), dtype="float")
-        # for k in range(self.K):
-        #     for n in range(self.N):
-        #         self.y[n,k] = eigenvectors[index_k[k]][n]
-        # self.y = np.array([U[i-1, :] for i in list_n]) # size K x N
-        # print(self.y)
-        # perform the k-means algorithm to partition the ys into k clusters H1, ..., Hk
-        # print(self.y[:,:self.K])
-        
-        
-        kmeans = KMeans(n_clusters=self.K)
-        estimator = kmeans.fit(U)
-        print(kmeans.labels_)
-        clusters = [[] for k in range(self.K)]
+    def compute_scenarios(self, K):
+        samples = list(self.combi)
 
-        for i,l in enumerate(kmeans.labels_):
-            clusters[l].append(i+1)
-        print(clusters)
-        # kmeans_instance = kmeans(U, self.y[:,:self.K])
-        # kmeans_instance.process()
-        # clusters = kmeans_instance.get_clusters()
-        # final_centers = kmeans_instance.get_centers()
-        # print(clusters)
-        # print(final_centers)
-        
-        # Return the partition C1,...,Cn on S defined by s in Cj iif ys in Hj
-        self.clusters = [[] for i in range(self.K)]
-        
-        for i in list_n:
-            for j in range(self.K):
-                if i in clusters[j]:
-                    self.clusters[j].append(i)
-        
-        print(self.clusters)
-        
-        
-        
-        
-
-
-class ClusterMedoid(ClusterScenario):
-    def compute_scenarios(self, combi):
-        sample = [k for k in combi]
-        for k in range(len(sample)):
-            for j in range(len(sample[k])):
+        for k, sample in enumerate(samples):
+            for j, _ in enumerate(sample):
                 if "high" in sample[k][j]:
-                    if "DMD" in sample[k][j]:
-                        sample[k][j] = 2
-                    else:
-                        sample[k][j] = 1
-                    
+                    sample[k][j] = 2
                 elif "med" in sample[k][j]:
-                    sample[k][j] = 0.5
+                    sample[k][j] = 1
                 elif "low" in sample[k][j]:
                     sample[k][j] = 0
                     
         # set random initial medoids
-        initial_medoids = [k for k in range(self.K)]
+        initial_medoids = list(range(K))
         # create instance of K-Medoids algorithm
-        kmedoids_instance = kmedoids(sample, initial_medoids)
+        kmedoids_instance = kmedoids(samples, initial_medoids)
         # run cluster analysis and obtain results
         kmedoids_instance.process()
         clusters = kmedoids_instance.get_clusters()
@@ -185,45 +302,51 @@ class ClusterMedoid(ClusterScenario):
                     break
 
 
-class ClusterRandom(ClusterScenario):
-    def compute_scenarios(self, N):
-        list_repr = [random.randint(1, N) for k in range(1, self.K+1)]
-        seen = []
-        for i,r in enumerate(list_repr):
-            if r not in seen:
-                seen.append(r)
-            else:
-                new = random.randint(1, N)
-                while new in seen:
-                    new = random.randint(1, N)
-                seen.append(new)
-        list_repr = seen
-                        
-        for k in list_repr:
-            self.scenarios[k] = [k]
-            
-        for n in range(1, N+1):
+class ClusterRandom():
+    """ Class based on random clustering """
+
+    def __init__(self, N):
+        self.N = N
+        self.scenarios = {} # ex: {1:[1,2,3], 4:[4]} for K=2 and N=4
+
+    def compute_scenarios(self, K):
+        """ Randomly selct K representative for the K cluster and randomly associate scenarios"""
+    
+        list_repr = random.sample(list(range(1, self.N+1)), K)
+        self.scenarios = {r:[] for r in list_repr}
+        for n in range(1, self.N+1):
             if n not in list_repr:
                self.scenarios[random.choice(list_repr)].append(n)
 
     
-class ClusterMedoidDistance(ClusterScenario): # Hewitt 2022
-    def compute_scenarios(self, cost_matrix):
+class ClusterMedoidDistance(): 
+    """ Class based on Hewitt 2022"""
+
+    def __init__(self, cost_matrix):
         self.cost_matrix = cost_matrix
         self.N = len(cost_matrix)
-        
-        list_n = [n for n in range(1, self.N+1)]
         self.distance_matrix = np.empty(shape=(self.N, self.N), dtype="object")
+        self.scenarios = {} # ex: {1:[1,2,3], 4:[4]} for K=2 and N=4
+        
+    
+    def compute_scenarios(self, K):
+        """ Use kmedoids based on distance matrix computed from cost opportunity matrix"""
+        list_n = list(range(1, self.N+1))
         for i in list_n:
             for j in list_n:
-                self.distance_matrix[i-1,j-1] = (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]) # >= 0
-
-        initial_medoids = [k for k in range(self.K)]
+                d = (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1])
+                if d/(self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) < -0.05:
+                    print(i, j, d, d/(self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]))
+                    raise ValueError
+                elif d < 0:
+                    d = 0
+                self.distance_matrix[i-1,j-1] = d # >= 0
+                
+        initial_medoids = [k for k in range(K)]
         kmedoids_instance = kmedoids(self.distance_matrix, initial_medoids, data_type='distance_matrix')
         kmedoids_instance.process()
         clusters = kmedoids_instance.get_clusters()
         medoids = kmedoids_instance.get_medoids()
-        # show allocated clusters
         for m in medoids:
             for c in clusters:
                 if m in c:
@@ -231,53 +354,45 @@ class ClusterMedoidDistance(ClusterScenario): # Hewitt 2022
                     break
 
 
-# class ClusterGraph(ClusterScenario): # Hewitt 2022
-#     def compute_scenarios(self, cost_matrix, new=True, FeasTol=(10**(-2))):
-#         self.cost_matrix = cost_matrix
-#         self.N = len(cost_matrix)
-        
-#         list_n = [n for n in range(1, self.N+1)]
-#         self.distance_matrix = np.empty(shape=(self.N, self.N), dtype="object")
-#         for i in list_n:
-#             for j in list_n:
-#                 self.distance_matrix[i-1,j-1] = (self.cost_matrix[i-1,j-1] + self.cost_matrix[j-1,i-1]) - (self.cost_matrix[i-1,i-1] + self.cost_matrix[j-1,j-1]) # >= 0
+class ClusterMIP():
+    """ Class based on the methodology by Katchanyan 2023"""
 
-#         initial_medoids = [k for k in range(self.K)]
-#         kmedoids_instance = kmedoids(self.distance_matrix, initial_medoids, data_type='distance_matrix')
-#         kmedoids_instance.process()
-#         clusters = kmedoids_instance.get_clusters()
-#         medoids = kmedoids_instance.get_medoids()
-#         # show allocated clusters
-#         for m in medoids:
-#             for c in clusters:
-#                 if m in c:
-#                     self.scenarios[m+1] = [i+1 for i in c]
-#                     break
+    def __init__(self, cost_matrix, coeff_matrix=1):
+        self.cost_matrix = np.dot(coeff_matrix,  cost_matrix)
+        self.N = len(self.cost_matrix)
+        self.scenarios = {} # ex: {1:[1,2,3], 4:[4]} for K=2 and N=4
+        self.model = ConcreteModel()
 
 
-class ClusterMIP(ClusterScenario): # Katchanyan 2023
-    def compute_scenarios(self, cost_matrix, new=True, FeasTol=(10**(-2))):
-        self.construct_model(cost_matrix, new)
-        self.solve_model(FeasTol)
+    def compute_scenarios(self, K, new=True, feas_tol=(10**(-2))):
+        """ 
+        parameters:
+        cost_matrix: Cost-opportunity matrix as definied in Katchanyan 2023
+        new: choose to use original methodology or modified one
+        FeasTol: Gurobi parameter
+        coeff_matrix: To change magnitude of cost_matrix values for improved performance
+        """
+        self.K = K
+        self.construct_model(new)
+        self.solve_model(feas_tol)
         
     
-    def construct_model(self, cost_matrix, new=True):
-        self.model = ConcreteModel()
-        self.cost_matrix = cost_matrix
-        self.N = len(cost_matrix)
-        
-        list_n = [n for n in range(1, self.N+1)]
+    def construct_model(self, new=True):
+        """ Build the pyomo model correspoonding to the MIP in Katchanyan 2023 (new=False).
+            If new is True, the formulation is improved.
+        """
+
+        list_n = list(range(1, self.N+1))
         list_nn = [(n,j) for n in range(1, self.N+1) for j in range(1, self.N+1)]
         
-        self.diff_matrix_abs = np.empty(shape=(self.N, self.N), dtype="object")
-        self.diff_matrix_nonabs = np.empty(shape=(self.N, self.N), dtype="object")
+        diff_matrix_abs = np.empty(shape=(self.N, self.N), dtype="float")
+        diff_matrix_nonabs = np.empty(shape=(self.N, self.N), dtype="float")
 
         for i in list_n:
             for j in list_n:
-                self.diff_matrix_abs[i-1,j-1] = abs(self.cost_matrix[i-1,j-1] - self.cost_matrix[i-1,i-1]) # >= 0
-                self.diff_matrix_nonabs[i-1,j-1] = self.cost_matrix[i-1,j-1] - self.cost_matrix[i-1,i-1]
+                diff_matrix_abs[i-1,j-1] = abs(self.cost_matrix[i-1,j-1] - self.cost_matrix[i-1,i-1]) # >= 0
+                diff_matrix_nonabs[i-1,j-1] = self.cost_matrix[i-1,j-1] - self.cost_matrix[i-1,i-1]
                 # distance between scenario i and scenario j with fixed var from i
-             
         
         # VARIABLES ------------------------------------------------------------------------------------------
         # t_i represents the clustering discrepancy
@@ -287,49 +402,52 @@ class ClusterMIP(ClusterScenario): # Katchanyan 2023
         self.model.u_n = Var(list_n, within=Binary)
         
         # the binary variable x_ij establishes whether or not the scenario i is in the cluster with representative j
-        self.model.x_nn = Var(list_nn, within=Binary)
-                
+        self.model.x_nn = Var(list_nn, within=Binary)    
 
         # CONSTRAINTS ------------------------------------------------------------------------------------
         if new:
-            def C1rule(model, j):
-                return (self.model.t_n[j] >= sum(self.model.x_nn[(i,j)]*self.diff_matrix_abs[j-1,i-1] for i in list_n))
-            self.model.C1 = Constraint(list_n, rule=C1rule)
+            def c1rule(model, j):
+                return (model.t_n[j] >= sum(model.x_nn[(i,j)]*diff_matrix_abs[j-1,i-1] for i in list_n))
+            self.model.C1 = Constraint(list_n, rule=c1rule)
         else:
-            def C1rule(model, j):
-                return (self.model.t_n[j] >= sum(self.model.x_nn[(i,j)]*self.diff_matrix_nonabs[j-1,i-1] for i in list_n))
-            self.model.C1 = Constraint(list_n, rule=C1rule)
+            def c1rule(model, j):
+                # return (self.model.t_n[j] >= sum(self.model.x_nn[(i,j)]*diff_matrix_nonabs[j-1,i-1] for i in list_n))
+                return (model.t_n[j] >= sum(model.x_nn[(i,j)]*self.cost_matrix[j-1,i-1] for i in list_n) - sum(model.x_nn[(i,j)]*self.cost_matrix[j-1,j-1] for i in list_n))  
+            self.model.C1 = Constraint(list_n, rule=c1rule)
             
-            def C2rule(model, j):
-                return (self.model.t_n[j] >= sum(self.model.x_nn[(i,j)]*(-1)*self.diff_matrix_nonabs[j-1,i-1] for i in list_n))
-            self.model.C2 = Constraint(list_n, rule=C2rule)
+            def c2rule(model, j):
+                # return (self.model.t_n[j] >= sum(self.model.x_nn[(i,j)]*(-1)*diff_matrix_nonabs[j-1,i-1] for i in list_n))
+                return (model.t_n[j] >= -sum(model.x_nn[(i,j)]*self.cost_matrix[j-1,i-1] for i in list_n) + sum(model.x_nn[(i,j)]*self.cost_matrix[j-1,j-1] for i in list_n))  
+            self.model.C2 = Constraint(list_n, rule=c2rule)
         
-        def C3rule(model, i, j): # Make sure that scenarios are associated with cluster having a representative
-            return (self.model.x_nn[(i,j)] <= self.model.u_n[j])
-        self.model.C3 = Constraint(list_nn, rule=C3rule)
+        def c3rule(model, i, j): # Make sure that scenarios are associated with cluster having a representative
+            return (model.x_nn[(i,j)] <= model.u_n[j])
+        self.model.C3 = Constraint(list_nn, rule=c3rule)
         
-        def C4rule(model, i): # Link variables
-            return (self.model.x_nn[(i,i)] == self.model.u_n[i])
-        self.model.C4 = Constraint(list_n, rule=C4rule)
+        def c4rule(model, i): # Link variables
+            return (model.x_nn[(i,i)] == model.u_n[i])
+        self.model.C4 = Constraint(list_n, rule=c4rule)
         
-        def C5rule(model, i): # Each scenario is in only 1 cluster
-            return (sum(self.model.x_nn[(i,j)] for j in list_n) == 1)
-        self.model.C5 = Constraint(list_n, rule=C5rule)
+        def c5rule(model, i): # Each scenario is in only 1 cluster
+            return (sum(model.x_nn[(i,j)] for j in list_n) == 1)
+        self.model.C5 = Constraint(list_n, rule=c5rule)
         
-        def C6rule(model, i): #Exactly K scenarios will be representatives
-            return (sum(self.model.u_n[j] for j in list_n) == self.K)
-        self.model.C6 = Constraint(list_n, rule=C6rule)
+        def c6rule(model): #Exactly K scenarios will be representatives
+            return (sum(model.u_n[j] for j in list_n) == self.K)
+        self.model.C6 = Constraint(rule=c6rule)
         
         
         # OBJECTIVE -------------------------------------------------------------------------------------
         def obj(model):
-            return (1/self.N) * sum(self.model.t_n[i] for i in list_n)
+            return (1/self.N) * sum(model.t_n[i] for i in list_n)
         self.model.objective_function = Objective(rule=obj, sense=minimize)
     
     
-    def solve_model(self, FeasTol=(10**(-2))):       
+    def solve_model(self, feas_tol=(10**(-2))):
+        """ solve and log the model resolution"""
+
         opt = pyomo.opt.SolverFactory('gurobi') #gurobi
-        opt.options['FeasibilityTol'] = FeasTol 
+        opt.options['FeasibilityTol'] = feas_tol 
 
         results = opt.solve(self.model, tee=True, 
                                         symbolic_solver_labels=False, #goes faster, but turn to true with errors!
@@ -348,29 +466,12 @@ class ClusterMIP(ClusterScenario): # Katchanyan 2023
             #print('Solver Status: '), self.results.solver.status
             #print('Termination Condition: '), self.results.solver.termination_condition
 
-        print('Solution time: ' + str(results.solver.time))
-        df = {}#"K":self.K}
-        for k in range(1, self.N+1):
-            print(k, self.model.t_n[k].value)
+        print('Solution time: ' + str(results.solver.time))      
+        
         for j in range(1, self.N+1):
-            if 1-FeasTol <= self.model.u_n[j].value <= 1+FeasTol:
-                # for i in range(1, self.N+1):
-                #     print("diff", i, self.cost_matrix[j-1,i-1]-self.cost_matrix[j-1,j-1])
-                #     print("diff abs", i, self.distance_matrix[j-1,i-1])
-                df[str(j)] = sum(self.model.x_nn[(i,j)].value for i in range(1, self.N+1))/self.N
+            if 1-feas_tol <= self.model.u_n[j].value <= 1+feas_tol:
                 self.scenarios[j] = []
-                # print(j, "is representative:", self.model.u_n[j].value==1)
                 for i in range(1, self.N+1):
-                    if 1-FeasTol <= self.model.x_nn[(i,j)].value <= 1+FeasTol:
+                    if 1-feas_tol <= self.model.x_nn[(i,j)].value <= 1+feas_tol:
                         self.scenarios[j].append(i)
-                        # print(i, "is in the same cluster as non-representative:", self.model.x_nn[(i,j)].value==1)
-        self.df = df
         
-        
-if __name__ == "__main__":
-    K = 2
-    cost_matrix = np.array([[0.9, 1.1, 4.2, 3.9], [1.4,1,4.3,4], [1.8,2,1.1,1], [1.8,2,1.1,1]])
-    scenarios1 = ClusterMIP(K).get_scenarios(cost_matrix, new=True)
-    scenarios2 = ClusterMIP(K).get_scenarios(cost_matrix, new=False)
-    print(scenarios1)
-    print(scenarios2)

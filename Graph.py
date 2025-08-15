@@ -5,198 +5,236 @@ Created on Tue Jan 21 11:24:17 2025
 @author: celinep
 """
 
-import pandas as pd
-import seaborn as sns
+import numpy as np
 import matplotlib.pyplot as plt
+from  matplotlib.ticker import FuncFormatter, FormatStrFormatter
+import matplotlib.ticker as ticker
+import pandas as pd
+
+
 
 PATH_OUTPUT = "output.xlsx"
 
 # df_matrix_medoid = pd.read_excel(PATH_OUTPUT, sheet_name="output_medoid").fillna(0)
 # df_matrix = pd.read_excel(PATH_OUTPUT, sheet_name="output_bis").fillna(0)
 
-df_comparison = pd.read_excel(PATH_OUTPUT, sheet_name="comparison").fillna(0)
 
+colors = {"random":"blue", "medoid":"orange",
+           "CSSC":"red", "CSSC_sparse_998":"orange", "CSSC_sparse_995":"purple",
+             "medoid_distance":"grey", "spect50":"green", "CSSC-2S":"cyan"}
 
 styles = ["-", "--", ".-", "-.", "-x", "-o", "-.", "-^", "-o", "-v"]
 styles_dict = {"NOR1":"-", "NOR2":"--", "NOR3":".-", "NOR4":"-.", "NOR5":"-x"}
 color_it = ["", "green", "orange", "violet", "red", "blue", "purple", "grey", "lila", ""]
-# fig, axs = plt.subplots(2, 2, layout='constrained', figsize=(12,6), sharey=True)
-# axe = axs.ravel()
-# for j,k in enumerate([1,2,3,5]):
-#     ax = axe[j]
-#     db = df_matrix[df_matrix["diag"]]
-#     for gr in range(1, k+1):
-#         db_bis = db[db[f"g{k}"]==gr]
-#         db_bis_r = db_bis[db_bis[f"p{k}"] > 0.0005]
-#         db_bis_rest = db_bis[db_bis[f"p{k}"]==0]
-#         db_bis_rest.plot.scatter(x="scenario", y="obj", ax=ax, color=color_it[gr])
-#         db_bis_r.plot.scatter(x="scenario", y="obj", ax=ax, color=color_it[gr], s=150,edgecolors='black')
-        
-
-#     ax.set_title(f"K={k}")
-#     # ax.set_xlim(2028, 2050)
-#     # ax.set_xticks(ticks=[2030+i*5 for i in range(5)], labels=[str(2030+i*5) for i in range(5)], rotation=45)
-#     # ax.set_xticklabels([2030, "", 2040, "", 2050] )
-#     # ax.set_xticks(ticks=[i for i in range(26)], minor=True)
-#     ax.grid(visible=True, which="major", axis="y")
-#     ax.grid(visible=True, which="both", axis="x")
-#     ax.set_ylabel("Objective value")
-#     ax.set_xlabel(None)
-# plt.show()
 
 
-# fig, axs = plt.subplots(3, 2, layout='constrained', figsize=(12,8), sharey=True, sharex=True)
-# axe = axs.ravel()
-# for j,k in enumerate([2,3,5]):
-#     for j2, df in enumerate([df_matrix, df_matrix_medoid]):
-#         ax = axe[j*2+j2]
-#         db = df[df["diag"]]
-#         for gr in range(1, k+1):
-#             db_bis = db[db[f"g{k}"]==gr]
-#             db_bis_r = db_bis[db_bis[f"p{k}"] > 0.0005]
-#             db_bis_rest = db_bis[db_bis[f"p{k}"]==0]
-#             db_bis_rest.plot.scatter(x="scenario", y="obj", ax=ax, color=color_it[gr])
-#             db_bis_r.plot.scatter(x="scenario", y="obj", ax=ax, color=color_it[gr], s=150,edgecolors='black')
-        
-#         ax.set_title(f"K={k}")
-#         ax.set_xlim(0, 25)
-#         # ax.set_xticks(ticks=[2030+i*5 for i in range(5)], labels=[str(2030+i*5) for i in range(5)], rotation=45)
-#         # ax.set_xticklabels([2030, "", 2040, "", 2050] )
-#         # ax.set_xticks(ticks=[i for i in range(26)], minor=True)
-#         ax.grid(visible=True, which="major", axis="y")
-#         ax.grid(visible=True, which="both", axis="x")
-#         ax.set_ylabel("Objective value")
-#         if j == 2:
-#             if j2 ==0:
-#                 ax.set_xlabel("CSSC")
-#             else:
-#                 ax.set_xlabel("K-medoids")
-#         else:
-#             ax.set_xlabel(None)
+def gap_methods(list_K=[1,2,3,4,5,10,15,20,25,35,45,55], methods=["random", "medoid", "spect50", "CSSC", "CSSC_sparse_998", "CSSC-2S"], v=1, save=True, show=False):
+    size = (12, 4) 
+    width = 0.085
+    coeff_pos = 1
+    # delta_K = 4
+    # delta_style = 0.5
+    delta_K = 2
+    delta_style = 0.3
+    dict_list_K = {1:0,2:1,3:2,4:3,5:4,10:5,15:6,20:7,25:8,35:9,45:10,55:11}
+    dict_list_K = {j:i for i,j in enumerate(list_K)}
+    methods_name = {"random":"SAA", "medoid":"Med.", "spect50":"spect50", "CSSC":"CSSC", "CSSC_sparse_998":"CSSC-98", "CSSC-2S":"CSSC-2S"}
 
-# # fig.suptitle("sup")
-# # axs.set_title("ax")
-# plt.show()
-# plt.show()
+    col_name = "gap_abs"
+    df_comparison = pd.read_excel(PATH_OUTPUT, sheet_name="comparison-64").fillna(0)
+    df_comparison_SAA = pd.read_excel(PATH_OUTPUT, sheet_name="comparison-64-SAA").fillna(0)
+    # col_name = "gap"
+    size_marker = 70
+    fig, ax = plt.subplots(layout='constrained', figsize=size)
+    for i,style in enumerate(methods):
+        if style == "random":
+            # df_comparison_SAA
+            df_comparison_SAA = df_comparison_SAA[(df_comparison_SAA['K'].isin(list_K))]
+            average_gap = pd.DataFrame(columns=["K", "av_gap"])
+            for k in list_K:
+                # average_gap = average_gap.append(, ignore_index=True)
+                average_gap.loc[len(average_gap)] = {"K":k, "av_gap":df_comparison_SAA[(df_comparison_SAA['K'] == k)]["GAP2"].mean()}
+            if v==1:
+                df_comparison_SAA["K"] = df_comparison_SAA["K"].apply(lambda x: delta_K*dict_list_K[x]+(i)*delta_style)
+                average_gap["K"] = average_gap["K"].apply(lambda x: delta_K*dict_list_K[x]+(i)*delta_style)
 
-
-# fig, axs = plt.subplots(2, 2, layout='constrained', figsize=(12,6), sharey=True)
-# axe = axs.ravel()
-# for j,k in enumerate([1,2,3,5]):
-#     ax = axe[j]
-#     db = df_matrix
-#     db.plot.scatter(x="scenario", y="obj", ax=ax, color="grey")
-#     for gr in range(1, k+1):
-#         db_bis = db[db[f"g{k}"]==gr]
-#         db_bis_r = db_bis[db_bis[f"p{k}"] > 0.0005]
-#         db_bis_rest = db_bis[db_bis[f"p{k}"]==0]
-#         db_bis_rest.plot.scatter(x="scenario", y="obj", ax=ax, color=color_it[gr])
-#         db_bis_r.plot.scatter(x="scenario", y="obj", ax=ax, color=color_it[gr], s=150,edgecolors='black')
-#         num_r = db_bis_r["scenario"].iloc[0]
-#         print(num_r)
-#         db[db["fix_var"]==num_r].plot.scatter(x="scenario", y="obj", ax=ax, color="grey",edgecolors=color_it[gr])
-       
-
-#     ax.set_title(f"K={k}")
-#     # ax.set_xlim(2028, 2050)
-#     # ax.set_xticks(ticks=[2030+i*5 for i in range(5)], labels=[str(2030+i*5) for i in range(5)], rotation=45)
-#     # ax.set_xticklabels([2030, "", 2040, "", 2050] )
-#     # ax.set_xticks(ticks=[i for i in range(26)], minor=True)
-#     ax.grid(visible=True, which="major", axis="y")
-#     ax.grid(visible=True, which="both", axis="x")
-#     ax.set_ylabel("Objective value")
-#     ax.set_xlabel(None)
-# plt.show()
+            elif v==2:
+                df_comparison_SAA["K"] = df_comparison_SAA["K"].apply(lambda x: delta_style*dict_list_K[x]+(i)*delta_K)
+                average_gap["K"] = average_gap["K"].apply(lambda x: delta_style*dict_list_K[x]+(i)*delta_K)
+            #UB
+            # df_comparison_SAA.plot.scatter(y="UB_GAP", x="K", ax=ax, rot=90, s=40, color="grey", marker="s", linewidth=0.7, edgecolor='black', yerr="UB_error")
+            # # LB
+            # df_comparison_SAA.plot.scatter(y="LB_GAP", x="K", ax=ax, rot=90, s=40, color="blue", marker="s", linewidth=0.7, edgecolor='black', yerr="LB_error")
+            
+            # GAP
+            print(average_gap)
+            df_comparison_SAA.plot.scatter(y="GAP2", x="K", ax=ax, rot=90, s=size_marker, color="blue", marker="s", linewidth=0.7, edgecolor='black', yerr="GAP2_error")
+            average_gap.plot.scatter(y="av_gap", x="K", ax=ax, rot=90, s=600, color="black", marker="_",zorder=3)
 
 
+            
 
+            # bp_dict = db.boxplot(column=col_name, by="K", ax=ax, sym=".", rot=90,
+            #                  medianprops=medianprops, boxprops=boxprops, whiskerprops=whiskerprops, patch_artist=True, return_type='both',
+            #                  positions=[delta_K*j for j in range(len(db["K"].unique()))])
+        else:
+            db = df_comparison[(df_comparison['type'] == style) & (df_comparison['K'].isin(list_K))][['K', 'gap', "gap_abs"]]
+            c = 1 if i ==0 else -1
+            if v==1:
+                db["K"] = db["K"].apply(lambda x: delta_K*dict_list_K[x]+(i)*delta_style)
+            elif v==2:
+                db["K"] = db["K"].apply(lambda x: delta_style*dict_list_K[x]+(i)*delta_K)
+            bp_dict = db.plot.scatter(y=col_name, x="K", ax=ax, rot=90, s=size_marker, color=colors[style], marker="s", linewidth=0.7, edgecolor='black')
 
+    # plt.legend(methods_name, loc="upper right", ncols=1)
+    if v==1:
+        lab = []
+        for m in methods:
+            lab += len(list_K)*[methods_name[m]]
+        posi_xticks = [delta_K*i+j*delta_style for j in range(len(methods)) for i in range(len(list_K))]
+    elif v==2:
+        lab = []
+        for m in methods:
+            lab += list_K
+        posi_xticks = [delta_style*i+j*delta_K   for j in range(len(methods)) for i in range(len(list_K))]
+    
+    ax.set_xticks(ticks=posi_xticks, labels = lab, minor=False)
+    ax.grid(visible=True, which="major", axis="x")
+    ax.grid(visible=True, which="minor", axis="x")
+    ax.grid(visible=True, which="major", axis="y")
 
-
-
-
-
-#%% df_comparison
-
-size = (8, 3) 
-fig, ax = plt.subplots(layout='constrained', figsize=size)
-width = 0.085
-coeff_pos = 1
-
-list_K = [1,2,3,5,10,15]
-dict_list_K = {1:0,2:1,3:2,5:3,10:4,15:5, 20:6}
-
-
-delta_K = 2
-delta_style = (0.5)
-
-color = ["red", "green", "orange"]
-methods = ["CSSC", "random"]
-
-
-posi_xticks = [delta_K*i+j*delta_style for j in [0,1] for i in range(len(list_K))]
-print(posi_xticks)
-
-for i,style in enumerate(methods):
-    boxprops = dict(linestyle='-', linewidth=1, color='black')
-    medianprops = dict(linestyle='-', linewidth=1, color="black")
-    whiskerprops = dict(linestyle='-', linewidth=1, color='black')
-    db = df_comparison[df_comparison['type'] == style][['K', 'gap']]
-    # db.plot.box(column)
-
-    if style == "random":
-        bp_dict = db.boxplot(column="gap", by="K", ax=ax, sym=".", rot=45,
-                         medianprops=medianprops, boxprops=boxprops, whiskerprops=whiskerprops, patch_artist=True, return_type='both',
-                         positions=[delta_K*j for j in range(len(db["K"].unique()))])
+    if v==1:
+        nspace= 32
+        label = [f"K={i}" + nspace*' ' for i in list_K[:-1]] + [f"K={list_K[-1]}"]
+        ax.set_xlabel("".join(label)) #f"Grouped by {by}")
+        ax.set_axisbelow(True)
+        ax.set_xlim(-0.5, delta_K*(len(list_K)-1)+(len(methods)-1)*delta_style+0.5)    
+    elif v==2:
+        nspace= 40
+        label = [f"{methods_name[m]}" + nspace*' ' for m in methods[:-1]] + [f"{methods_name[methods[-1]]}"]
+        ax.set_xlabel("".join(label)) #f"Grouped by {by}")
+        ax.set_axisbelow(True)
+        ax.set_xlim(-0.5, delta_K*(len(methods)-1)+(len(list_K)-1)*delta_style+0.5)
+    if col_name == "gap_abs":
+        ax.set_ylim(0, 8)
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
     else:
-        print(db["K"])
-        c = 1 if i ==0 else -1
-        db["K"] = db["K"].apply(lambda x: delta_K*dict_list_K[x]+(c)*delta_style)
-        print(db["K"])
-        bp_dict = db.plot.scatter(y="gap", x="K", ax=ax, rot=45, color=color[i])
+        ax.set_ylim(-7, 7) 
+    ax.set_ylabel("Implementation error [%]")
+    fig.suptitle(None)
+    ax.set_title(None)
+
+    if show:
+        plt.show()
+    if save:
+        plt.savefig(f'figures/gap{v}.png', bbox_inches="tight")
+
+
+solve_sp_time = {1:32, 2:74, 3:95, 4:240, 5:346, 10:2172, 15:4335, 20:16198, 64:95049}
+solve_sp_times_full_fixed_first_stage = 1500
+solve_precompute_time = {"CSSC":88627, "CSSC-98":17866, "CSSC-95":3912, "SAA":0}
+M = 10
+
+def get_graph_solve_time(chosen_k=[5, 10, 20], type_matrix = ["CSSC", "CSSC-98", "SAA"], save=True, show=False):
     
-    
+    delta_K = 2.2
+    delta_style = 0.55
+    linewidth = 0.5
+    width = 0.5
 
-    # db.columns = db.columns.droplevel(0)
-    # y_offset = 1
-    # list_bar = {round(float(0*coeff_pos+it*width), 3):None, round(float(1*coeff_pos+it*width), 3):None, round(float(2*coeff_pos+it*width), 3):None, round(float(3*coeff_pos+it*width), 3):None}
-    # for bar in ax.patches:
-    #     bx = round(bar.get_x(), 3)
-    #     if bar.get_y() >= 0 and bar.get_height() >= 0 and bx in list_bar.keys():
-    #         if (list_bar[bx] == None or list_bar[bx].get_y() < bar.get_y()):
-    #             list_bar[bx] = bar
-    
-    # for bx, bar in list_bar.items():
-    #     ax.text(
-    #           bar.get_x() + bar.get_width() / 2,
-    #           bar.get_height() + bar.get_y() + y_offset,
-    #           it*coeff_pos+1,
-    #           ha='center',
-    #           color='black',
-    #           size=8)
-
-plt.legend(["CSSC", "MC"], loc="upper right", ncols=1)
-
-# ax.set_xticks(ticks=[i*delta_K+delta_style for i in range(len(list_K))], labels=[i for i in range(1, len(list_K+1))], rotation=45)
-print(6*["medoid", "MC", "CSSC"])
-ax.set_xticks(ticks=posi_xticks, labels =6*["MC"]+6*["CSSC"], minor=False)
-# ax.set_xticks(ticks=posi_xticks, minor=True)
-ax.grid(visible=True, which="major", axis="x")
-ax.grid(visible=True, which="minor", axis="x")
-nspace= 22
-ax.set_xlabel('K=1' + nspace*' ' +  'K=2' + nspace*' ' + 'K=3' + nspace*' ' + 'K=5' + nspace*' ' + 'K=10' + nspace*' ' + 'K=15') #f"Grouped by {by}")
-
-ax.set_axisbelow(True)
-ax.set_xlim(-0.5, 11)
-ax.set_ylabel("Gap [%]")
-
-fig.suptitle(None)
-ax.set_title(None)
-
-plt.show()
+    lower_bars_precompute = [solve_precompute_time[m] for m in type_matrix for k in chosen_k ] + [0]
+    upper_bars_solve = []
+    for m in type_matrix:
+        for k in chosen_k:
+            if m == "SAA":
+                upper_bars_solve.append(M*(solve_sp_time[k]+solve_sp_times_full_fixed_first_stage))
+            else:
+                upper_bars_solve.append(solve_sp_time[k])
+    upper_bars_solve += [solve_sp_time[64]]
 
 
+    fig, ax = plt.subplots(figsize=(12,5))
+    bottom = np.zeros(len(chosen_k)*len(type_matrix)+1)
+    labels = [m for m in type_matrix for k in chosen_k] + ["Full SP-64"]
+    posi_xticks = [delta_K*i+j*delta_style for j in range(len(type_matrix)) for i in range(len(chosen_k))] + [delta_K*len(chosen_k)+(len(type_matrix)-1)*delta_style]
+
+    ax.bar(posi_xticks, lower_bars_precompute, width=width, label="Precomputing", bottom=bottom, linewidth=linewidth, edgecolor='black', zorder=3, color="#014693")
+    ax.bar(posi_xticks, upper_bars_solve, width=width, label="Solve SP", bottom=lower_bars_precompute, linewidth=linewidth, edgecolor='black', zorder=3, color="#f58c36")
+
+    ax.set_title("Title")
+    ax.legend(loc="upper right")
+    ax.set_xticks(ticks=posi_xticks, labels = labels, minor=False, rotation=45)
+    ax.grid(visible=True, which="major", axis="y", zorder=0)
+    ax.set_ylabel("Time [s]")
+    nspace = 42
+    label = [f"K={i}" + nspace*' ' for i in chosen_k] + [int(nspace/2)*' ']
+    ax.set_xlabel("".join(label)) #f"Grouped by {by}")
+    ax.get_yaxis().set_major_formatter(FuncFormatter(lambda x, p: '{:,}'.format(int(x)).replace(",", " ")))
+    fig.suptitle(None)
+    ax.set_title(None)
+    if show:
+        plt.show()
+    if save:
+        plt.savefig('figures/solve_time.png', bbox_inches="tight")
 
 
 
+def graph_solve_time_VS_gap(methods=["random", "CSSC", "CSSC_sparse_998"], save=True, show=False):
+    PATH_OUTPUT = "output.xlsx"
 
+    dict_translate_names = {"CSSC_sparse_998":"CSSC-98", "CSSC":"CSSC", "random":"SAA"}
+
+    df_comparison = pd.read_excel(PATH_OUTPUT, sheet_name="comparison-64").fillna(0)
+
+    size = (6, 5.5)
+    size = (12, 4) 
+    size_pt = 50
+    fig, ax = plt.subplots(layout='constrained', figsize=size)
+    list_K = [1,2,3,4,5,10,15,20]
+    size_marker = 70
+
+    for m in methods:
+        if "random" == m:
+            df_comparison_SAA = pd.read_excel(PATH_OUTPUT, sheet_name="comparison-64-SAA").fillna(0)
+            # df_comparison_SAA["GAP2"] = df_comparison_SAA["GAP2"] + df_comparison_SAA["GAP2_error"]
+            average_gap = pd.DataFrame(columns=["K", "av_gap", "yerror"])
+            for k in list_K:
+                average_gap.loc[len(average_gap)] = {"K":k, "av_gap":df_comparison_SAA[(df_comparison_SAA['K'] == k)]["GAP2"].mean(), "yerror":df_comparison_SAA[(df_comparison_SAA['K'] == k)]["GAP2_error"].max()}
+            df_comparison_SAA["solve_time"] = df_comparison_SAA["K"].apply(lambda x: M*(solve_sp_time[x]+solve_sp_times_full_fixed_first_stage))
+            average_gap["solve_time"] = average_gap["K"].apply(lambda x: M*(solve_sp_time[x]+solve_sp_times_full_fixed_first_stage))
+            print(df_comparison_SAA.columns)
+            # idx = df_comparison_SAA.groupby(["K", "solve_time"])['GAP2'].transform("min") == df_comparison_SAA['GAP2']
+            # print(idx)
+            # df_comparison_SAA = df_comparison_SAA[idx]
+            print(df_comparison_SAA[["K", "solve_time", "GAP2", "GAP2_error"]])
+            # df_comparison_SAA.plot.scatter(x="GAP2", y="solve_time", ax=ax, rot=90, s=40, color=colors[m], marker="s", linewidth=0.7, edgecolor='black', zorder=3, label=dict_translate_names[m], xerr="yerror")
+            average_gap.plot.scatter(x="av_gap", y="solve_time", ax=ax, rot=90, s=size_marker, color=colors[m], marker="s", linewidth=0.7, edgecolor='black', zorder=3, label=dict_translate_names[m])#, xerr="yerror")
+        else:
+            db = df_comparison[(df_comparison['type'] == m) & (df_comparison['K'] <= 20)][['K', "gap_abs"]]
+            db["solve_time"] = db["K"].apply(lambda x: solve_sp_time[x]+solve_precompute_time[dict_translate_names[m]])
+            db["GAP2"] = db["gap_abs"]
+            db.plot.scatter(x="GAP2", y="solve_time", ax=ax, rot=90, s=size_marker, color=colors[m], marker="s", linewidth=0.7, edgecolor='black', zorder=3, label=dict_translate_names[m])
+
+    ax.scatter(x=[0], y=[solve_sp_time[64]], s=size_pt, color="black", marker="s", linewidth=0.7, edgecolor='black', zorder=3, label='full SP')
+
+    ax.grid(visible=True, which="major", axis="both", zorder=0)
+    ax.get_yaxis().set_major_formatter(FuncFormatter(lambda x, p: '{:,}'.format(int(x)).replace(",", " ")))
+    ax.set_ylabel("Time [s]")
+    ax.set_xlabel("Implementation error [%]")
+    plt.legend()
+    ax.set_xlim(0, 4)
+    ax.set_ylim(0, 180000)
+    plt.gca().xaxis.set_major_formatter(FormatStrFormatter('%g'))
+
+    if show:
+        plt.show()
+    if save:
+        plt.savefig('figures/solve_time_VS_gap.png', bbox_inches="tight")
+
+
+
+# gap_methods(list_K=[1,2,3,4,5,10,20], methods=["random", "CSSC", "CSSC_sparse_998"], v=1)
+# gap_methods(list_K=[1,2,3,4,5,10,20], methods=["random", "CSSC", "CSSC_sparse_998"], v=2)
+
+# get_graph_solve_time()
+graph_solve_time_VS_gap()

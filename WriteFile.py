@@ -8,13 +8,16 @@ Created on Fri May 10 11:43:50 2024
 from openpyxl import load_workbook, Workbook 
 
 
-DICT_ATT_TO_BND = {"VAR_Act":"ACT_BND", "VAR_Cap":"CAP_BND", "VAR_Ncap":"NCAP_BND",
-                   "VAR_Comnet":"COM_BNDNET", "VAR_Comprd":"COM_BNDPRD", "VAR_Cumcom":"COM_CUMBND",
-                   "VAR_Cumflo":"FLO_CUM", "VAR_Flo":"FLO_BND", "VAR_Ire":"IRE_BND",
-                   "VAR_Cumcst":"REG_CUMCST", "VAR_Sin":"STGIN_BND", "VAR_Sout":"STGOUT_BND"}
-
 class ExcelTIMES:
-    def __init__(self, wb_name, ws_name, data_only, delete_old=True):
+    """ Master class for dealing with Excel files """
+
+    def __init__(self, wb_name:str, ws_name:str, data_only:bool, delete_old=True):
+        """
+        parameters:
+        data_only: may erase existing formulas in the workbook
+        delete_old: when loading the worksheet, erase existing data
+        """
+
         self.wb_name = wb_name
         try:
             self.wb = load_workbook(wb_name , data_only=data_only)
@@ -32,17 +35,42 @@ class ExcelTIMES:
     def close(self):
         self.wb.save(self.wb_name) 
         
-    def write_header(self, name, header):
+    def write_header(self, name, header:list):
         self.ws.cell(self.row_nb, 1, value=name)
         for i, value in enumerate(header):
             for j, value2 in enumerate(value):
                 self.ws.cell(column=j+1, row=self.row_nb+1+i, value=value2)
         self.row_nb += 1 + len(header)
 
+    
+    def sow(self, stages:dict, sows:dict):
+        self.write_header("~TFM_INS", [["Attribute", "STAGE", "SOW", "Value"]])
+        # Define the decision period
+        for stage, year in stages.items():
+            self.ws.cell(column=1, row=self.row_nb, value="SW_START")
+            self.ws.cell(column=2, row=self.row_nb, value=stage)
+            self.ws.cell(column=4, row=self.row_nb, value=year)
+            self.row_nb += 1
+        # Define the number of SOW per stage (only 2 stages considered here, to be changed otherwise)
+        self.ws.cell(column=1, row=self.row_nb, value="SW_SUBS")
+        self.ws.cell(column=2, row=self.row_nb, value=1)
+        self.ws.cell(column=3, row=self.row_nb, value=1)
+        self.ws.cell(column=4, row=self.row_nb, value=len(sows.keys()))
+        self.row_nb += 1
+        # Define the SOW and their probabilities
+        for sow, p in sows.items():
+            self.ws.cell(column=1, row=self.row_nb, value="SW_SPROB")
+            self.ws.cell(column=2, row=self.row_nb, value=2)
+            self.ws.cell(column=3, row=self.row_nb, value=sow)
+            self.ws.cell(column=4, row=self.row_nb, value=p)
+            self.row_nb += 1
+        self.row_nb += 2
 
-
-class ExcelScenarios(ExcelTIMES):   
+    
     def write_scenarios(self, scenarios, new_scenarios=True):
+        """
+        
+        """
         col_level = 1
         col_var = 2
         col_full_scenarios = 3
@@ -60,74 +88,91 @@ class ExcelScenarios(ExcelTIMES):
                 if not new_scenarios:
                     self.ws.cell(column=col_full_scenarios, row=row, value=txt)
 
-
-class ExcelSettings(ExcelTIMES):
-    def SOW(self, stages:dict, sows:dict):
-        self.write_header("~TFM_INS", [["Attribute", "STAGE", "SOW", "Value"]])
-        # Define the decision period
-        for stage, year in stages.items():
-            self.ws.cell(column=1, row=self.row_nb, value="SW_START")
-            self.ws.cell(column=2, row=self.row_nb, value=stage)
-            self.ws.cell(column=4, row=self.row_nb, value=year)
-            self.row_nb += 1
-        # Define the number of SOW per stage (only 2 stage considered here, to be changed otherwise)
-        self.ws.cell(column=1, row=self.row_nb, value="SW_SUBS")
-        self.ws.cell(column=2, row=self.row_nb, value=1)
-        self.ws.cell(column=3, row=self.row_nb, value=1)
-        self.ws.cell(column=4, row=self.row_nb, value=len(sows.keys()))
-        self.row_nb += 1
-        # Define the SOW and their probabilities
-        for sow, p in sows.items():
-            self.ws.cell(column=1, row=self.row_nb, value="SW_SPROB")
-            self.ws.cell(column=2, row=self.row_nb, value=2)
-            self.ws.cell(column=3, row=self.row_nb, value=sow)
-            self.ws.cell(column=4, row=self.row_nb, value=p)
-            self.row_nb += 1
-        self.row_nb += 2
-
-
-class ExcelSUPXLS(ExcelTIMES):
-
-    def Write_table(self, name, df):
-        self.ws.cell(self.row_nb, 1, value=name)
-        self.row_nb += 1
-        row_head = self.row_nb
-        for i, col in enumerate(df.columns):
-            self.ws.cell(self.row_nb, i+1, value=col)
-        self.row_nb += 1
+    def write_scenarios_par_2s(self, pairs):
         
-        for idx, row in df.iterrows():
-            for col in range(1, len(df.columns)+1):
-                self.ws.cell(self.row_nb, col, value=row[self.ws.cell(row_head, col).value])
-            self.row_nb += 1
-    
-    def Write_table_UC(self, df, regions):
-        self.ws.cell(self.row_nb, 1, value="~TFM_INS")
-        self.row_nb += 1
-        row_head = self.row_nb
-        columns = ["Attribute", "LimType", "Pset_PN", "Cset_CN", "Year", "TimeSlice"]
-        for i, col in enumerate(columns):
-            self.ws.cell(self.row_nb, i+1, value=col)
-        for i, r in enumerate(regions):
-            self.ws.cell(self.row_nb, len(columns)+1+i, value=r)
-        self.row_nb += 1
-        for idx, row in df.iterrows():
-            self.ws.cell(self.row_nb, 1, value=DICT_ATT_TO_BND[row["Attribute"]])
-            self.ws.cell(self.row_nb, 2, value="FX")
-            self.ws.cell(self.row_nb, 3, value=row["Process"])
-            self.ws.cell(self.row_nb, 4, value=row["Commodity"])
-            self.ws.cell(self.row_nb, 5, value=row["Period"])
-            self.ws.cell(self.row_nb, 6, value=row["Timeslice"])
-            for i, r in enumerate(regions):
-                self.ws.cell(self.row_nb, len(columns)+1+i, value=row[r])
-            self.row_nb += 1
+        # scenarios
+        col_L, line_L = 3,5
+        col_H, line_H = 3, 40
+                
+        col_level = 13
+        col_var = 14
+        col_full_scenarios = 15
         
-    
-# "~TFM_UPD"
+        
+        
+        for row in range(1, 50):
+            if self.ws.cell(row=row, column=col_level).value is None:
+                var = self.ws.cell(row=row, column=col_var).value
+            else:
+                level = self.ws.cell(row=row, column=col_level).value
+                
+                for k, (i,j) in pairs.items():
+                    txt = "0,99,100"
+                    txt = ""
+                    first = True
 
-# ~TFM_UPD
-# ~TFM_INS
-# ~UC_T
-# ~TFM_INS-TS
-# ~TFM_DINS
-# ~TFM_DINS-TS: curr=kNOK2021
+                    
+                    # ex: 1, (21,44)
+                    print(k,i,j)
+                    for n,s in enumerate((i,j)):
+                        if str(s) in str(self.ws.cell(row=row, column=col_full_scenarios).value).split(","):
+                            if not first:
+                                txt += ","
+                            txt += f"{n+1}"
+                            first = False
+
+                    l_base = line_H  if level == "HIGH" else line_L
+                    
+                    for c in range(col_L+1, col_L+8):
+                        if self.ws.cell(row=l_base, column=c).value == var:
+                            self.ws.cell(column=c, row=l_base+k, value=txt)
+                            break
+
+
+    def write_scenarios_par(self, cluster, K, N):
+        dict_to_false_k = {1:1,2:2,3:3,4:4,5:5,10:6,15:7,20:8,25:9,35:10,45:11,55:12}
+
+        false_K = dict_to_false_k[K]
+
+        # probabilities
+        col_11 = 3
+        line_11 = 5
+        
+        s = 1
+        for key,value in cluster.items():
+            p = len(value) / N
+            self.ws.cell(column=col_11+false_K, row=line_11+s, value=p)
+            s += 1
+        
+        # scenarios
+        col_11 = 20
+        line_L, line_H = 5, 77
+        
+        scenarios = cluster.keys()
+        
+        col_level = 30
+        col_var = 31
+        col_full_scenarios = 32
+        for row in range(1, 50):
+            if self.ws.cell(row=row, column=col_level).value is None:
+                var = self.ws.cell(row=row, column=col_var).value
+            else:
+                level = self.ws.cell(row=row, column=col_level).value
+                txt = "0,99,100"
+                txt = ""
+                first = True
+                for j, s in enumerate(scenarios):
+                    if str(s) in str(self.ws.cell(row=row, column=col_full_scenarios).value).split(","):
+                        if not first:
+                            txt += ","
+                        txt += f"{j+1}"
+                        first = False
+                
+               
+                l_base = line_H  if level == "HIGH" else line_L
+                
+                for c in range(col_11+1, col_11+8):
+                    if self.ws.cell(row=l_base, column=c).value == var:
+                        self.ws.cell(column=c, row=l_base+K, value=txt)
+                        break
+
