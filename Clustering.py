@@ -9,6 +9,7 @@ Created on Thu Jan  2 20:53:16 2025
 import logging
 import math
 import random
+import os
 
 # Third-party libraries
 import pandas as pd
@@ -125,7 +126,7 @@ def get_pairs_scenarios(cost_matrix):
     return scenarios
 
 
-def cluster_first_stage_solutions(file_results_veda, file_matrix='matrix_corr_first_stage.csv',
+def cluster_first_stage_solutions(folder_results_veda, file_matrix='matrix_corr_first_stage.csv',
                                    coeff=0.9995, K=None,
                                      new_file_matrix=True, year_second_stage=2035):
     """
@@ -134,15 +135,21 @@ def cluster_first_stage_solutions(file_results_veda, file_matrix='matrix_corr_fi
 
     # Create a new file for the matrix. Turn to False to save time in debug
     if new_file_matrix:
-        matrix_corr = np.empty(shape=(len(scenarios), len(scenarios)), dtype='float')
+        for file in os.scandir(folder_results_veda):  
+            if file.is_file():
+                print(f"reading {file}")
+                df = pd.read_csv(file, sep=";", )
+                break
 
-        df = pd.read_csv(file_results_veda, sep=";", )
         scenarios = df["Scenario"].unique()
+        matrix_corr = np.empty(shape=(len(scenarios), len(scenarios)), dtype='float')
 
         # Clean the df to keep only interesting variables
         df.drop(df[(~df.Attribute.str.contains('VAR')) | (df.Attribute.str.endswith('M'))].index, inplace = True)
         df["Pv"] = pd.to_numeric(df["Pv"].str.replace(",", "."))
-        df = df[df["Period"] <= year_second_stage]
+        df["Period"] = pd.to_numeric(df["Period"], errors="coerce").astype("Int64")
+        df = df[(df["Period"] <= year_second_stage) & (df["Period"].notna())]
+        print(df)
         
         # Divide the results in dfs for each different scenarios
         dfs = [df[df["Scenario"] == s][["Attribute", "Commodity", "Process", "Region", "Timeslice", "Period", "Pv"]].rename(columns={"Pv":f"Pv_{str(i).zfill(2)}"}) for i,s in enumerate(scenarios)]
@@ -150,7 +157,7 @@ def cluster_first_stage_solutions(file_results_veda, file_matrix='matrix_corr_fi
         # compare each scenario with one another to get correlation between them
         for i, df_i in enumerate(dfs):
             matrix_corr[i,i] = 1 # correlation of 1 in diagonal
-            for j, df_j in enumerate(dfs[i+1:]):
+            for j, df_j in enumerate(dfs[(i+1):], start=i+1):
                 df_ij = pd.merge(df_i, df_j, on=["Attribute", "Commodity", "Process", "Region", "Timeslice", "Period"], how='outer')[[f"Pv_{str(i).zfill(2)}", f"Pv_{str(j).zfill(2)}"]]
                 corr = df_ij.corr()
                 matrix_corr[i,j] = corr.at[f"Pv_{str(i).zfill(2)}", f"Pv_{str(j).zfill(2)}"]
@@ -160,11 +167,13 @@ def cluster_first_stage_solutions(file_results_veda, file_matrix='matrix_corr_fi
     matrix_corr = loadtxt(file_matrix, delimiter=',')
     
     sns.heatmap(matrix_corr)
-    plt.show()
+    plt.savefig('figures/heatmap.png', bbox_inches="tight")
+    print(f"Figure {'figures/heatmap.png'} saved.")
 
 
     # 1st method: put together scenarios with correlation > coeff, unknown number of clusters
     if coeff is not None:
+        print(f"using correlation > {coeff} to cluster scenarios")
         used = []
         cluster = {}
         for i in range(len(matrix_corr)):
@@ -178,6 +187,7 @@ def cluster_first_stage_solutions(file_results_veda, file_matrix='matrix_corr_fi
     
     # 2nd method: cluster scenarios with spectral clustering to from K cluster
     elif K is not None:
+        print(f"using spectral clustering to create {K} clusters")
         clustering = SpectralClustering(n_clusters=K, affinity="precomputed").fit(matrix_corr)
         cluster = {i:[] for i in range(K)}
         for i,l in enumerate(clustering.labels_):

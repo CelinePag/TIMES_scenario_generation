@@ -32,15 +32,22 @@ PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.2
 # PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified_test_co2\IFE-NO-2024.08.27_simplified_test_co2\\"
 # NAME_STUDY = "Stocha_CO2tax"
 
+
+
+NAME_STUDY = "Stocha_test_demo"
+PATH_TIMES = r"C:\Veda\Veda_models\Demo_models\DemoS_012\\"
+
 FOLDER_SUBXLS = f"{PATH_TIMES}SuppXLS"
-PATH_UNCERTAINTIES = f"{PATH_TIMES}uncertainties.xlsx"
 PATH_GDX = f"C:\Veda\GAMS_WrkTIMES\{NAME_STUDY}"
 PATH_CASES = f"{PATH_TIMES}AppData\Cases.json"
 PATH_GROUPS = f"{PATH_TIMES}AppData\Groups.json"
-PATH_SETTINGS = f"{PATH_TIMES}SysSettings.xlsx"
-PATH_SCENARIOS = f"{PATH_TIMES}SuppXLS\\" + "Scen_stocha_uncertainties.xlsx"
+
+
+PATH_UNCERTAINTIES = f"{PATH_TIMES}uncertainties.xlsx"
+PATH_SCENARIOS = FOLDER_SUBXLS + "Scen_stocha_uncertainties.xlsx"
 PATH_RESULTS = f"{PATH_TIMES}Exported_files\matrix"
 PATH_RESULTS2 = f"{PATH_TIMES}Exported_files\matrix_2S"
+PATH_FIRSTSTAGE_DIAG = f"{PATH_TIMES}Exported_files\diagonal"
 PATH_TEMPLATE_STOCH_PAR = f"{PATH_TIMES}SuppXLS\\" + "template_uncertainties_par.xlsx"
 PATH_TEMPLATE_STOCH_PAR_2s = f"{PATH_TIMES}SuppXLS\\" + "template_uncertainties_par-2S.xlsx"
 
@@ -145,6 +152,8 @@ def create_cases_fix_first_stage(year_second_stage:int,
     # Extract from the exisiting cases the one that will be used as template
     with open(PATH_CASES, mode="r", encoding="utf-8") as read_file:
         cases = json.load(read_file)
+
+    idmax = max(c["CaseId"] for c in cases)
     
     model_case = None
     for c in cases:
@@ -179,7 +188,7 @@ def create_cases_fix_first_stage(year_second_stage:int,
         func_filename = lambda n:f"{model_solu_fixed_from}~{str(n).zfill(4)}"
 
     # create the new cases by just modifying data from template case related to fixing first stage variables
-    n_id = 1000
+    n_id = idmax
     for i in iterator:
         new_case = copy.deepcopy(model_case)
         new_case["CaseId"] = n_id
@@ -255,9 +264,9 @@ def write_parametric_xls(method="CSSC_new", type_matrix="full", cluster=None, N=
     ws_s = wf.ExcelTIMES(dest, "source_scenarios", data_only=False, delete_old=False)
 
     # for each k of the right method/type matrix clusters, we write in the appropriate cells
-    for (m,t,k), value in cluster.items():
-        if m == method and t == type_matrix:
-            ws_s.write_scenarios_par(value, k, N)
+    subdict = {key[2]: v for key, v in cluster.items() if key[0] == method and key[1] == type_matrix}
+    print(f"Writing in workbook {dest} and worksheet source_scenarios")
+    ws_s.write_scenarios_par(subdict, N)
     ws_s.close()
 
 def write_parametric2s_xls(cost_matrix):
@@ -306,8 +315,6 @@ class ApproximateSP():
         self.basename_1s = f"{basename}_1S"
         self.basename_2s = f"{basename}_2S"
 
-        self.file_diag_first_stage = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\Exported_files\041425_134220007.csv"
-
         self.dict_clusters = {}
 
 
@@ -320,14 +327,15 @@ class ApproximateSP():
     def compute_scenarios_diagonal_matrix(self, ):
 
         input(f"Run the Parametric use case of TIMES with name {self.basename_1s}")
+
         move_gdx(name_case_par=self.basename_1s, n_start=1, n_fin=self.N)
+        input(f"Export results as .csv to the {PATH_FIRSTSTAGE_DIAG} folder")
 
     
     def get_scenarios_for_sparse(self, corr=0.99, new_file_matrix=True):
         """ Choose which lines of the cost-opportunity matrix to compute based on similarity in first stage solutions of individual subproblems """
-        print("Clustering first stage solution of individual problems...", end='')
-        self.cluster_sparse = cl.cluster_first_stage_solutions(self.file_diag_first_stage, coeff=corr, new_file_matrix=new_file_matrix)
-        print("Ok")
+        print("Clustering first stage solution of individual problems...")
+        self.cluster_sparse = cl.cluster_first_stage_solutions(PATH_FIRSTSTAGE_DIAG, coeff=corr, new_file_matrix=new_file_matrix)
         self.scen_to_be_calculated = [k for k in self.cluster_sparse.keys()]
         print(f"Scenarios to be computed: {self.scen_to_be_calculated}")
         print(f"Total number of determnistic instances reduced by {100*(self.N-len(self.scen_to_be_calculated)-1)/self.N} %")
@@ -351,7 +359,10 @@ class ApproximateSP():
         self.get_clusters(list_K, list_methods, sparse)
         type_matrix = "sparse" if sparse else "full"
         for m in list_methods:
-            write_parametric_xls(method=m, type_matrix=type_matrix, cluster=self.dict_clusters)
+            write_parametric_xls(method=m, type_matrix=type_matrix, cluster=self.dict_clusters, N=self.N)
+        print("Done! Please Sync the files in VEDA....")
+        print("Create the new case with corresponding new parametric file")
+
 
 
     def clustering_2s(self, sparse=False, list_methods=["CSSC_new"], list_K=[1,2,3,4,5,10]):
@@ -434,11 +445,12 @@ class ApproximateSP():
         type_matrix = "sparse" if sparse else "full"
         for m in list_methods:
             for k in list_K:
-                cluster = dict_class[m](**dict_class_kwargs[m]).compute_scenarios(K=k, **dict_fct_kwargs[m])
+                cluster = dict_class[m](**dict_class_kwargs[m])
+                cluster.compute_scenarios(K=k, **dict_fct_kwargs[m])
                 return_cluster[(m, type_matrix, k)] = cluster.scenarios
 
         if not matrix:
-            for key, item in return_cluster:
+            for key, item in return_cluster.items():
                 self.dict_clusters[key] = item
         else:
             return return_cluster
@@ -471,6 +483,7 @@ class ApproximateSP():
             for j in range(N):
                 if type(matrix[i,j]) != float:
                     print(f"Error in matrix value for i={i}, j={j}: {matrix[i,j]}")
+                    raise ValueError
         print("ok")
         if (N_new and name_base=="2s"):
             return matrix
@@ -521,9 +534,10 @@ if __name__ == "__main__":
     year_second_stage = 2035
 
     uncertainties = []
-    for u in ["WIND","CO2TAX", "HYDROGEN", "DMD", "ELEC", "BIOMASS"]: 
+    for u in ["WIND","CO2TAX", "HYDROGEN", "DMD", "ELEC"]: 
         uncertainties.append([u, []])
         for lvl in ["HIGH", "LOW"]:
+
             uncertainties[-1][1].append(lvl)
 
     # ex: uncertainties = [["WIND", ["HIGH", "LOW"]], ["HYDROGEN", ["HIGH", "LOW"]]]

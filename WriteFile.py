@@ -129,12 +129,11 @@ class ExcelTIMES:
                             break
 
 
-    def write_scenarios_par(self, cluster:dict, K:int, N:int):
+    def write_scenarios_par(self, K_clusters:dict, N:int):
         """ Write the parametric sheet to associate each case with a number of scenarios for the reduced SP. 
         
         Parameters:
-        - cluster: clustering of the scenarios as such: {1:[1,2,5], 3:[3,6]} where 1 and 3 are representatives of clusters
-        - K: the number of scenarios to be considered
+        - K_clusters: clustering of the scenarios as such: {1:[1,2,5], 3:[3,6]} in a dict with K values keys
         - N: the total number of scenarios of the full SP
         """
         
@@ -144,14 +143,15 @@ class ExcelTIMES:
 
         dict_case_to_K = {}
         ws_uncertainties = self.wb["Uncertainties"]
-        for row in range(7, 100):
-            if ws_uncertainties.cell(row=row-1, column=1).value != "Case":
-                raise ValueError
+        row_case = 6
+        print(f"reading {ws_uncertainties.cell(row=row_case, column=1).value}...")
+        if ws_uncertainties.cell(row=row_case, column=1).value != "Case":
+            raise ValueError
+        for row in range(row_case+1, 100):
             if ws_uncertainties.cell(row=row, column=1).value is None:
                 break
             dict_case_to_K[int(ws_uncertainties.cell(row=row, column=2).value)] = int(ws_uncertainties.cell(row=row, column=1).value)
         nb_cases = len(dict_case_to_K)
-        
 
         for row in self.ws.iter_rows(values_only=False):
             for cell in row:
@@ -160,7 +160,6 @@ class ExcelTIMES:
                     col_idx = cell.column
                     left_ok = (col_idx > 1 and self.ws.cell(row=row_idx+1, column=col_idx-1).value == "scenarios")
                     top_ok  = (row_idx > 1 and self.ws.cell(row=row_idx-1, column=col_idx+1).value in ["cases", "uncertainties"])
-
                     if left_ok and top_ok:
                         cells_target[cell.value] = (cell.row, cell.column)
                     if None not in cells_target.values():
@@ -168,42 +167,42 @@ class ExcelTIMES:
             if None not in cells_target.values():
                 break
 
+        for K, cluster in K_clusters.items():
+            # Write probability of each scenario of the approximate problem for all cases
+            s = 1
+            for list_scenarios in cluster.values():
+                proba_cluster = len(list_scenarios) / N
+                self.ws.cell(column=cells_target[target_proba][1]+dict_case_to_K[K],
+                            row=cells_target[target_proba][0]+s,
+                            value=proba_cluster)
+                s += 1
 
-        # Write probability of each scenario of the approximate problem for all cases
-        s = 1
-        for list_scenarios in cluster.values():
-            proba_cluster = len(list_scenarios) / N
-            self.ws.cell(column=cells_target[target_proba][1]+dict_case_to_K[K],
-                         row=cells_target[target_proba][0]+s,
-                         value=proba_cluster)
-            s += 1
-
-        # Write the scenarios associated with the right level of uncertainties
-        col_level, col_uncert, col_fullSP = 1, 2, 3
-        representatives = cluster.keys()
-        for row in range(1,100):
-            if self.ws.cell(row=row, column=col_level).value is None:
-                if self.ws.cell(row=row+1, column=col_level).value is None:
-                    break
-                uncertainty = self.ws.cell(row=row, column=col_uncert).value
-                # We locate the uncertainty
-            else:
-                level = self.ws.cell(row=row, column=col_level).value
-                # We locate the level of uncertainty
-                txt = ""
-                first = True
-                # For each scenario, we redefine the numerotation of chosen scenarios based on new K
-                for j, repr in enumerate(representatives):
-                    if str(repr) in str(self.ws.cell(row=row, column=col_fullSP).value).split(","):
-                        if not first:
-                            txt += ","
-                        txt += f"{j+1}"
-                        first = False
-                
-                # For each case (which represent different K values)
-                for col_case in range(cells_target[level][1]+1, cells_target[level][1]+nb_cases):
-                    if self.ws.cell(row=cells_target[level][0], column=col_case).value == uncertainty:
-                        self.ws.cell(row=cells_target[level][0]+K, column=col_case, value=txt)
+            # Write the scenarios associated with the right level of uncertainties
+            col_level, col_uncert, col_fullSP = 1, 2, 3
+            representatives = cluster.keys()
+            for row in range(1,100):
+                if self.ws.cell(row=row, column=col_level).value is None:
+                    if self.ws.cell(row=row+1, column=col_level).value is None:
                         break
+                    uncertainty = self.ws.cell(row=row, column=col_uncert).value
+                    # We locate the uncertainty
+                else:
+                    level = self.ws.cell(row=row, column=col_level).value
+                    # We locate the level of uncertainty
+                    txt = ""
+                    first = True
+                    # For each scenario, we redefine the numerotation of chosen scenarios based on new K
+                    for j, repr in enumerate(representatives):
+                        if str(repr) in str(self.ws.cell(row=row, column=col_fullSP).value).split(","):
+                            if not first:
+                                txt += ","
+                            txt += f"{j+1}"
+                            first = False
+                    
+                    # For each case (which represent different K values)
+                    for col_case in range(cells_target[level][1]+1, cells_target[level][1]+nb_cases):
+                        if self.ws.cell(row=cells_target[level][0], column=col_case).value == uncertainty:
+                            self.ws.cell(row=cells_target[level][0]+K, column=col_case, value=txt)
+                            break
 
 
