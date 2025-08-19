@@ -129,50 +129,81 @@ class ExcelTIMES:
                             break
 
 
-    def write_scenarios_par(self, cluster, K, N):
-        dict_to_false_k = {1:1,2:2,3:3,4:4,5:5,10:6,15:7,20:8,25:9,35:10,45:11,55:12}
-
-        false_K = dict_to_false_k[K]
-
-        # probabilities
-        col_11 = 3
-        line_11 = 5
+    def write_scenarios_par(self, cluster:dict, K:int, N:int):
+        """ Write the parametric sheet to associate each case with a number of scenarios for the reduced SP. 
         
+        Parameters:
+        - cluster: clustering of the scenarios as such: {1:[1,2,5], 3:[3,6]} where 1 and 3 are representatives of clusters
+        - K: the number of scenarios to be considered
+        - N: the total number of scenarios of the full SP
+        """
+        
+        target_proba = "PROBA"
+        target_level = ["HIGH", "LOW", "MID"]
+        cells_target = {t:None for t in target_level+[target_proba]}
+
+        dict_case_to_K = {}
+        ws_uncertainties = self.wb["Uncertainties"]
+        for row in range(7, 100):
+            if ws_uncertainties.cell(row=row-1, column=1).value != "Case":
+                raise ValueError
+            if ws_uncertainties.cell(row=row, column=1).value is None:
+                break
+            dict_case_to_K[int(ws_uncertainties.cell(row=row, column=2).value)] = int(ws_uncertainties.cell(row=row, column=1).value)
+        nb_cases = len(dict_case_to_K)
+        
+
+        for row in self.ws.iter_rows(values_only=False):
+            for cell in row:
+                if cell.value in target_level+[target_proba]:
+                    row_idx = cell.row
+                    col_idx = cell.column
+                    left_ok = (col_idx > 1 and self.ws.cell(row=row_idx+1, column=col_idx-1).value == "scenarios")
+                    top_ok  = (row_idx > 1 and self.ws.cell(row=row_idx-1, column=col_idx+1).value in ["cases", "uncertainties"])
+
+                    if left_ok and top_ok:
+                        cells_target[cell.value] = (cell.row, cell.column)
+                    if None not in cells_target.values():
+                        break
+            if None not in cells_target.values():
+                break
+
+
+        # Write probability of each scenario of the approximate problem for all cases
         s = 1
-        for key,value in cluster.items():
-            p = len(value) / N
-            self.ws.cell(column=col_11+false_K, row=line_11+s, value=p)
+        for list_scenarios in cluster.values():
+            proba_cluster = len(list_scenarios) / N
+            self.ws.cell(column=cells_target[target_proba][1]+dict_case_to_K[K],
+                         row=cells_target[target_proba][0]+s,
+                         value=proba_cluster)
             s += 1
-        
-        # scenarios
-        col_11 = 20
-        line_L, line_H = 5, 77
-        
-        scenarios = cluster.keys()
-        
-        col_level = 30
-        col_var = 31
-        col_full_scenarios = 32
-        for row in range(1, 50):
+
+        # Write the scenarios associated with the right level of uncertainties
+        col_level, col_uncert, col_fullSP = 1, 2, 3
+        representatives = cluster.keys()
+        for row in range(1,100):
             if self.ws.cell(row=row, column=col_level).value is None:
-                var = self.ws.cell(row=row, column=col_var).value
+                if self.ws.cell(row=row+1, column=col_level).value is None:
+                    break
+                uncertainty = self.ws.cell(row=row, column=col_uncert).value
+                # We locate the uncertainty
             else:
                 level = self.ws.cell(row=row, column=col_level).value
-                txt = "0,99,100"
+                # We locate the level of uncertainty
                 txt = ""
                 first = True
-                for j, s in enumerate(scenarios):
-                    if str(s) in str(self.ws.cell(row=row, column=col_full_scenarios).value).split(","):
+                # For each scenario, we redefine the numerotation of chosen scenarios based on new K
+                for j, repr in enumerate(representatives):
+                    if str(repr) in str(self.ws.cell(row=row, column=col_fullSP).value).split(","):
                         if not first:
                             txt += ","
                         txt += f"{j+1}"
                         first = False
                 
-               
-                l_base = line_H  if level == "HIGH" else line_L
-                
-                for c in range(col_11+1, col_11+8):
-                    if self.ws.cell(row=l_base, column=c).value == var:
-                        self.ws.cell(column=c, row=l_base+K, value=txt)
+                # For each case (which represent different K values)
+                for col_case in range(cells_target[level][1]+1, cells_target[level][1]+nb_cases):
+                    if self.ws.cell(row=cells_target[level][0], column=col_case).value == uncertainty:
+                        self.ws.cell(row=cells_target[level][0]+K, column=col_case, value=txt)
                         break
+
 

@@ -140,7 +140,7 @@ def create_cases_fix_first_stage(year_second_stage:int,
 
     """
     
-    print(f"Creating cases with fixed first stage solutions ...", end='')
+    print("Creating cases with fixed first stage solutions ...", end='')
 
     # Extract from the exisiting cases the one that will be used as template
     with open(PATH_CASES, mode="r", encoding="utf-8") as read_file:
@@ -244,14 +244,20 @@ def create_cases_scenarios(name_case_stocha="stochastic_full",
     with open(PATH_CASES, mode="w", encoding="utf-8") as write_file:
         json.dump(cases, write_file)
 
-def write_parametric_xls(method="CSSC_new", type_matrix="full", cluster=None):
+def write_parametric_xls(method="CSSC_new", type_matrix="full", cluster=None, N=1):
+    """ Create a new parametric Excel file based on the given template.
+    Fill the right worksheet with data such as scenarios chosen for each k and corresponding probabilities"""
     origin = PATH_TEMPLATE_STOCH_PAR
     dest = f"{FOLDER_SUBXLS}\Scen_Par-stocha_uncertainties_{method}_{type_matrix}.xlsx"
-    shutil.copyfile(PATH_TEMPLATE_STOCH_PAR, dest)
-    ws_s = wf.ExcelScenarios_par(dest, "source_scenarios", data_only=False, delete_old=False)
-    for (m,k), value in cluster.items():
-        if m == method:
-            ws_s.write_scenarios(value, k, N)
+    shutil.copyfile(origin, dest)
+
+    # open the new parametric file, keep old data and formulas
+    ws_s = wf.ExcelTIMES(dest, "source_scenarios", data_only=False, delete_old=False)
+
+    # for each k of the right method/type matrix clusters, we write in the appropriate cells
+    for (m,t,k), value in cluster.items():
+        if m == method and t == type_matrix:
+            ws_s.write_scenarios_par(value, k, N)
     ws_s.close()
 
 def write_parametric2s_xls(cost_matrix):
@@ -259,8 +265,8 @@ def write_parametric2s_xls(cost_matrix):
     dest = f"{FOLDER_SUBXLS}\Scen_Par-stocha_uncertainties_2S.xlsx"
     shutil.copyfile(origin, dest)
     pairs = cl.get_pairs_scenarios(cost_matrix)
-    ws_s = wf.ExcelScenarios_par_2S(dest, "source_scenarios", data_only=False, delete_old=False)
-    ws_s.write_scenarios(pairs)
+    ws_s = wf.ExcelTIMES(dest, "source_scenarios", data_only=False, delete_old=False)
+    ws_s.write_scenarios_par_2s(pairs)
     ws_s.close()
 
 def write_stochastic_xls():
@@ -341,7 +347,7 @@ class ApproximateSP():
         """ Normal method to cluster the scenarios"""
         if sparse and self.cluster_sparse == {}:
             self.get_scenarios_for_sparse(corr=0.99, new_file_matrix=True)
-        self.get_costMatrix(PATH_RESULTS, coeff=10**-5, sparse=sparse)
+        self.get_cost_matrix(PATH_RESULTS, coeff=10**-5, sparse=sparse)
         self.get_clusters(list_K, list_methods, sparse)
         type_matrix = "sparse" if sparse else "full"
         for m in list_methods:
@@ -354,13 +360,13 @@ class ApproximateSP():
             to create cost opportunity matrix and clustering strategies"""
         if sparse and self.cluster_sparse == {}:
             self.get_scenarios_for_sparse(corr=0.99, new_file_matrix=True)
-        self.get_costMatrix(PATH_RESULTS, coeff=10**-5, sparse=sparse)
+        self.get_cost_matrix(PATH_RESULTS, coeff=10**-5, sparse=sparse)
         # the matrix needs only diagonals elements, so need only to run the individual scenarios once
 
         # write_scenarios_xls(type_file="parametric-2S", cost_matrix=cost_matrix)
         pairs = cl.get_pairs_scenarios(self.cost_matrix)
         solos = cl.get_repr_distance(self.cost_matrix, list_K)
-        cost_matrix_2S = self.get_costMatrix(PATH_RESULTS2, N_new=int(self.N/2), name_base="2s", coeff=10**-5, sparse=sparse)
+        cost_matrix_2S = self.get_cost_matrix(PATH_RESULTS2, N_new=int(self.N/2), name_base="2s", coeff=10**-5, sparse=sparse)
         type_matrix = "sparse" if sparse else "full"
 
         cluster_2s = self.get_clusters(list_K, list_methods, sparse, matrix=cost_matrix_2S)
@@ -438,7 +444,7 @@ class ApproximateSP():
             return return_cluster
 
 
-    def get_costMatrix(self, folder_matrix, name_base="1s", coeff=1, sparse=False, N_new=None):
+    def get_cost_matrix(self, folder_matrix, name_base="1s", coeff=1, sparse=False, N_new=None):
         """ Create the cost opportunity matrix from Veda results """
 
         N = N if (N_new and name_base=="2s") else self.N
@@ -517,8 +523,9 @@ if __name__ == "__main__":
     uncertainties = []
     for u in ["WIND","CO2TAX", "HYDROGEN", "DMD", "ELEC", "BIOMASS"]: 
         uncertainties.append([u, []])
-        for lvl in ["high", "low"]:
+        for lvl in ["HIGH", "LOW"]:
             uncertainties[-1][1].append(lvl)
 
+    # ex: uncertainties = [["WIND", ["HIGH", "LOW"]], ["HYDROGEN", ["HIGH", "LOW"]]]
     approxi_SP = ApproximateSP(year_second_stage, uncertainties)
     approxi_SP.get_approximate(method, K, sparse=True)
