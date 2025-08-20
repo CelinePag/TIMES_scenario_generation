@@ -1,0 +1,12 @@
+
+
+
+# Analysis
+perso/
+
+# IDE/ cache
+.spyproject/
+__pycache__/
+figures/
+
+
