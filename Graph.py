@@ -39,7 +39,7 @@ class Graphs():
         self.df_comparison = pd.read_excel(path_data, sheet_name=sheetname).fillna(0)
         self.df_comparison_SAA = pd.read_excel(path_data, sheet_name=sheetname_SAA).fillna(0)
         self.methods_name = {"random":"SAA", "medoid":"Med.", "spect50":"spect50", "CSSC":"CSSC", "CSSC_sparse_998":"CSSC-98", "CSSC-2S":"CSSC-2S"}
-    
+
 
     def get_gap(self, list_methods, list_K, v=1, save=True, show=False):
         """ Create a graph with implementation error """
@@ -71,7 +71,6 @@ class Graphs():
                 average_gap.plot.scatter(y="av_gap", x="K", ax=ax, rot=90, s=600, color="black", marker="_",zorder=3)
             else:
                 db = self.df_comparison[(self.df_comparison['type'] == method) & (self.df_comparison['K'].isin(list_K))][['K', 'gap', "gap_abs"]]
-                c = 1 if i ==0 else -1
                 if v==1:
                     db["K"] = db["K"].apply(lambda x: delta_K*dict_list_K[x]+(i)*delta_style)
                 elif v==2:
@@ -99,7 +98,9 @@ class Graphs():
             ax.set_xlabel("".join(label)) #f"Grouped by {by}")
             ax.set_axisbelow(True)
             ax.set_xlim(-0.5, delta_K*(len(list_methods)-1)+(len(list_K)-1)*delta_style+0.5)
-        
+        else:
+            raise ValueError
+
         ax.set_xticks(ticks=posi_xticks, labels = lab, minor=False)
         ax.grid(visible=True, which="major", axis="x")
         ax.grid(visible=True, which="minor", axis="x")
@@ -141,7 +142,7 @@ class Graphs():
                 else:
                     upper_bars_solve.append(solve_sp_time[k])
         upper_bars_solve += [solve_sp_time[64]]
-    
+
 
         bottom = np.zeros(len(list_K)*len(list_methods)+1)
         posi_xticks = [delta_K*i+j*delta_style for j in range(len(list_methods)) for i in range(len(list_K))] + [delta_K*len(list_K)+(len(list_methods)-1)*delta_style]
@@ -166,14 +167,14 @@ class Graphs():
         if save:
             plt.savefig('figures/solve_time.png', bbox_inches="tight")
 
-    
-   
+
+
 
     def get_gap_vs_solve_time(self, list_K, list_methods, save=True, show=False):
         """ Create a graph with implementation error in xaxis and time to solve in yaxis"""
 
         # Caracteristics figure
-        size = (12, 4) 
+        size = (12, 4)
         size_pt = 50
         size_marker = 70
         fig, ax = plt.subplots(layout='constrained', figsize=size)
@@ -208,5 +209,3 @@ class Graphs():
             plt.show()
         if save:
             plt.savefig('figures/solve_time_VS_gap.png', bbox_inches="tight")
-
-

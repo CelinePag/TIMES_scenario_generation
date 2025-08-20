@@ -22,34 +22,34 @@ import WriteFile as wf
 import Clustering as cl
 
 
-# FOLDER_SUBXLS = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_original\IFE-NO-2024.08.27_original\SuppXLS"
-# FOLDER_SUBXLS = r"C:\Users\celinep\Documents\GitHub\TIMES_scenario_generation\SuppXLS"
-
-
-NAME_STUDY = "Stocha"
-PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified\\"
-
-# PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified_test_co2\IFE-NO-2024.08.27_simplified_test_co2\\"
-# NAME_STUDY = "Stocha_CO2tax"
-
-
-
+# --- Study selection ---
 NAME_STUDY = "Stocha_test_demo"
-PATH_TIMES = r"C:\Veda\Veda_models\Demo_models\DemoS_012\\"
+PATH_TIMES = r"C:\Veda\Veda_models\Demo_models\DemoS_012"
 
-FOLDER_SUBXLS = f"{PATH_TIMES}SuppXLS"
-PATH_GDX = f"C:\Veda\GAMS_WrkTIMES\{NAME_STUDY}"
-PATH_CASES = f"{PATH_TIMES}AppData\Cases.json"
-PATH_GROUPS = f"{PATH_TIMES}AppData\Groups.json"
+# Alternative setups:
+# NAME_STUDY = "Stocha"
+# PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified\IFE-NO-2024.08.27_simplified"
+
+# NAME_STUDY = "Stocha_CO2tax"
+# PATH_TIMES = r"C:\Veda\Veda_models\IFE-NO-2024.08.27_simplified_test_co2\IFE-NO-2024.08.27_simplified_test_co2"
 
 
-PATH_UNCERTAINTIES = f"{PATH_TIMES}uncertainties.xlsx"
-PATH_SCENARIOS = FOLDER_SUBXLS + "Scen_stocha_uncertainties.xlsx"
-PATH_RESULTS = f"{PATH_TIMES}Exported_files\matrix"
-PATH_RESULTS2 = f"{PATH_TIMES}Exported_files\matrix_2S"
-PATH_FIRSTSTAGE_DIAG = f"{PATH_TIMES}Exported_files\diagonal"
-PATH_TEMPLATE_STOCH_PAR = f"{PATH_TIMES}SuppXLS\\" + "template_uncertainties_par.xlsx"
-PATH_TEMPLATE_STOCH_PAR_2s = f"{PATH_TIMES}SuppXLS\\" + "template_uncertainties_par-2S.xlsx"
+# --- Subfolders & files ---
+FOLDER_SUBXLS = os.path.join(PATH_TIMES, "SuppXLS")
+PATH_GDX = os.path.join(r"C:\Veda\GAMS_WrkTIMES", NAME_STUDY)
+PATH_CASES = os.path.join(PATH_TIMES, "AppData", "Cases.json")
+PATH_GROUPS = os.path.join(PATH_TIMES, "AppData", "Groups.json")
+
+PATH_UNCERTAINTIES = os.path.join(PATH_TIMES, "uncertainties.xlsx")
+PATH_SCENARIOS = os.path.join(FOLDER_SUBXLS, "Scen_stocha_uncertainties.xlsx")
+
+PATH_RESULTS = os.path.join(PATH_TIMES, "Exported_files", "matrix")
+PATH_RESULTS2 = os.path.join(PATH_TIMES, "Exported_files", "matrix_2S")
+PATH_FIRSTSTAGE_DIAG = os.path.join(PATH_TIMES, "Exported_files", "diagonal")
+
+PATH_TEMPLATE_STOCH_PAR = os.path.join(FOLDER_SUBXLS, "template_uncertainties_par.xlsx")
+PATH_TEMPLATE_STOCH_PAR_2s = os.path.join(FOLDER_SUBXLS, "template_uncertainties_par-2S.xlsx")
+
 
 
 
@@ -75,7 +75,7 @@ def get_combination(uncert_list):
     return combinations
 
 def move_gdx(name_case_par="scenarios_diag_1S", n_start=1, n_fin=64):
-    """ 
+    """
     Move files from the working directory to the model directory for use as first-stage solutions.
     Files must be made with parametric option and of the form: {name_case_par}~0004
 
@@ -83,30 +83,30 @@ def move_gdx(name_case_par="scenarios_diag_1S", n_start=1, n_fin=64):
     name_case_par: Name of the case (must use parametric scenarios)
     n_start: 1st scenario to be included ({name_case_par}~n_start)
     n_fin: last scenario to be included ({name_case_par}~n_fin)
-    
-     """
 
-    print(f"moving gdx files {n_start} to {n_fin} from {PATH_GDX}\{name_case_par}\{name_case_par}~XXXX\GAMSSAVE\{name_case_par}~XXXX to {PATH_TIMES}\AppData\GAMSSAVE\{name_case_par}~XXXX...", end='')
+     """
+    print(f"Moving gdx files {n_start} to {n_fin} from {os.path.join(PATH_GDX, name_case_par, name_case_par + '~XXXX', 'GAMSSAVE')} to {os.path.join(PATH_TIMES, 'AppData', 'GAMSSAVE', name_case_par + '~XXXX')}...",
+        end='')
     for n in range(n_start, n_fin+1):
         name_s = f"{name_case_par}~{str(n).zfill(4)}"
-        src_file = f"{PATH_GDX}\{name_case_par}\{name_s}\GAMSSAVE\{name_s}.gdx"
-        dst_file = f"{PATH_TIMES}\AppData\GAMSSAVE\{name_s}.gdx"
+        src_file = os.path.join(PATH_GDX, name_case_par, name_s, "GAMSSAVE", f"{name_s}.gdx")
+        dst_file = os.path.join(PATH_TIMES, "AppData", "GAMSSAVE", f"{name_s}.gdx")
         shutil.copyfile(src_file, dst_file)
     print("Ok")
 
 def create_groups_scenarios(model_group_name="stochastic_full",
-                                list_name_new_groups=[]):
-    """ Create new scenario groups based on a given template 
-    
+                                list_name_new_groups=None):
+    """ Create new scenario groups based on a given template
+
     Parameters:
     model_group_name: name of the scenario group to use as template
-    list_name_new_groups: list of the new groups based on the template, 
+    list_name_new_groups: list of the new groups based on the template,
     """
 
     # Extract from the exisiting groups the one that will be used as template
     with open(PATH_GROUPS, mode="r", encoding="utf-8") as read_file:
         groups = json.load(read_file)
-    
+
     model_group = None
     for g in groups:
         if g["GroupName"] == model_group_name:
@@ -120,24 +120,24 @@ def create_groups_scenarios(model_group_name="stochastic_full",
         new_group = copy.deepcopy(model_group)
         new_group["SavedGroupId"] = nstart_id + n
         n += 1
-        new_group["GroupName"] = new_name               
+        new_group["GroupName"] = new_name
         new_group["Settings"].replace("{\"Name\": \"stocha_uncertainties\", \"Checked\": true",
                                         "{\"Name\": \"stocha_uncertainties\", \"Checked\": false")
         new_group["Settings"] = new_group["Settings"][:-1] + ", {\"Name\": \"" + f"{name_group}" + "\", \"Checked\": true, \"RowOrder\": 15, \"ShortName\": \"RS\"}]"
         groups.append(copy.deepcopy(new_group))
-    
+
     # Save the new groups
     with open(PATH_GROUPS, mode="w", encoding="utf-8") as write_file:
         json.dump(groups, write_file)
 
 def create_cases_fix_first_stage(year_second_stage:int,
-                                  model_case_name="scenarios_diag_1S", 
+                                  model_case_name="scenarios_diag_1S",
                                    model_solu_fixed_from="scenarios_diag_1S",
-                                     n_list=list(range(1, 64+1)),
-                                       list_methods=["CSSC_new"], type_matrix=["full"], list_K=1):
+                                     n_list=None,
+                                       list_methods=None, type_matrix=None, list_K=1):
     """ Copy the appropriate case and add fixed first stage solutions.
         Will create as many new parametric cases as there are cases in the parametric case model_solu_fixed_from.
-    
+
     Parameters:
     year_second_stage: Year until when the variables are fixed
     model_case_name: name of the case to will be used as template
@@ -146,7 +146,7 @@ def create_cases_fix_first_stage(year_second_stage:int,
     list_methods, type_matrix, list_K: reference to non-parametric case to use as first stage solution (when applicable)
 
     """
-    
+
     print("Creating cases with fixed first stage solutions ...", end='')
 
     # Extract from the exisiting cases the one that will be used as template
@@ -154,7 +154,7 @@ def create_cases_fix_first_stage(year_second_stage:int,
         cases = json.load(read_file)
 
     idmax = max(c["CaseId"] for c in cases)
-    
+
     model_case = None
     for c in cases:
         if c["Name"] == model_case_name:
@@ -162,65 +162,75 @@ def create_cases_fix_first_stage(year_second_stage:int,
             break
     if model_case is None:
         raise ValueError
-    
+
     iterator = []
     # option 1: we have the diagonal case and want to create the non-diagonal cases
     if model_case_name == model_solu_fixed_from:
         iterator = n_list
-        func_name = lambda n:f"{model_case_name}_{n}"
-        func_descr = lambda n:f"scenarios with fixed variables from {n}"
-        func_filename = lambda n:f"{model_solu_fixed_from}~{str(n).zfill(4)}"
+        def get_characteristics(i):
+            name = f"{model_case_name}_{i}"
+            description = f"scenarios with fixed variables from {i}"
+            filename = f"{model_solu_fixed_from}~{str(i).zfill(4)}"
+            return (name, description, filename)
 
     # option 2: we want to create cases for full_scenario with fixed first stage from various methodology (non-random)
-    # ex: model_case_name = "stochastic_full" 
+    # ex: model_case_name = "stochastic_full"
     elif model_solu_fixed_from is None:
         iterator = [(met,mat,K) for met in list_methods for mat in type_matrix for K in list_K]
-        func_name = lambda met,mat,K: f"{model_case_name}_fixed_{met}_{mat}_{K}"
-        func_descr = lambda met,mat,K:f"full scenarios with fixed variables from {met}_{mat}_{K}"
-        func_filename = lambda met,mat,K:f"{met}_{mat}_{K}"
+        def get_characteristics(i):
+            met, mat, K = i
+            name = f"{model_case_name}_fixed_{met}_{mat}_{K}"
+            description = f"full scenarios with fixed variables from {met}_{mat}_{K}"
+            filename = f"{met}_{mat}_{K}"
+            return (name, description, filename)
 
     # option 3: we want to create cases for full_scenario with fixed first stage from random methodology
     # ex: model_case_name = "stochastic_full" and model_solu_fixed_from = "stochastic_random"
     elif model_solu_fixed_from == "stochastic_random":
         iterator = n_list
-        func_name = lambda n: f"{model_case_name}_fixed_random_{n}"
-        func_descr = lambda n:f"full scenarios with fixed variables from random Par. {n}"
-        func_filename = lambda n:f"{model_solu_fixed_from}~{str(n).zfill(4)}"
+        def get_characteristics(i):
+            name = f"{model_case_name}_fixed_random_{i}"
+            description = f"full scenarios with fixed variables from random Par. {i}"
+            filename = f"{model_solu_fixed_from}~{str(i).zfill(4)}"
+            return (name, description, filename)
+    else:
+        raise ValueError
 
     # create the new cases by just modifying data from template case related to fixing first stage variables
     n_id = idmax
     for i in iterator:
+        name, description, filename = get_characteristics(i)
         new_case = copy.deepcopy(model_case)
         new_case["CaseId"] = n_id
         n_id += 1
-        new_case["Name"] = func_name(i)
-        new_case["Description"] = func_descr(i)
+        new_case["Name"] = name
+        new_case["Description"] = description
         new_case["FixResultFileName"] = "True"
-        new_case["FixResultInfo"]["WorkTimesFolderPath"] = f"{PATH_TIMES}AppData\\GAMSSAVE"
+        new_case["FixResultInfo"]["WorkTimesFolderPath"] = os.path.join(PATH_TIMES, "AppData", "GAMSSAVE")
         new_case["FixResultInfo"]["IsApplyFixResult"] = True
         new_case["FixResultInfo"]["GdxElasticDermands"]["IsApplied"] = True
         new_case["FixResultInfo"]["GdxIre"]["IsApplied"] = True
         new_case["FixResultInfo"]["GdxUseSolution"]["FixYearsUpto"] = f"{year_second_stage}"
-        new_case["FixResultInfo"]["GdxUseSolution"]["GdxSelectedFile"]["FileName"] = func_filename(i)
-        new_case["FixResultInfo"]["GdxUseSolution"]["GdxSelectedFile"]["FilePath"] = f"{PATH_TIMES}AppData\\GAMSSAVE\\{func_filename(i)}.gdx"
+        new_case["FixResultInfo"]["GdxUseSolution"]["GdxSelectedFile"]["FileName"] = filename
+        new_case["FixResultInfo"]["GdxUseSolution"]["GdxSelectedFile"]["FilePath"] = os.path.join(PATH_TIMES, "AppData", "GAMSSAVE", f"{filename}.gdx")
         new_case["FixResultInfo"]["GdxUseSolution"]["GdxSelectedFile"]["IsSelected"] = True
         new_case["FixResultInfo"]["GdxUseSolution"]["IsApplied"] = True
         cases.append(copy.deepcopy(new_case))
-    
+
     # Save the new cases
     with open(PATH_CASES, mode="w", encoding="utf-8") as write_file:
         json.dump(cases, write_file)
     print("ok")
 
-def create_cases_scenarios(name_case_stocha="stochastic_full", 
-                           list_name_new_cases=[]):
+def create_cases_scenarios(name_case_stocha="stochastic_full",
+                           list_name_new_cases=None):
                            # list_methods=["CSSC_new"], type_matrix=["full"], K=1):
-    """ Create new scenario cases based on a given template. 
-    /!\ The corresponding groups for the new cases must already exist with the same name
-    
+    """ Create new scenario cases based on a given template.
+    /! The corresponding groups for the new cases must already exist with the same name
+
     Parameters:
     name_case_stocha: name of the case to use as template
-    list_name_new_cases: list of the new cases based on the template, 
+    list_name_new_cases: list of the new cases based on the template,
     """
 
     # Extract from the exisiting cases the one that will be used as template
@@ -231,7 +241,7 @@ def create_cases_scenarios(name_case_stocha="stochastic_full",
         if c["Name"] == name_case_stocha:
             model_case = copy.deepcopy(c)
             break
-    
+
     with open(PATH_GROUPS, mode="r", encoding="utf-8") as read_file:
         groups = json.load(read_file)
     nstart_id, n = 10000, 0
@@ -257,7 +267,7 @@ def write_parametric_xls(method="CSSC_new", type_matrix="full", cluster=None, N=
     """ Create a new parametric Excel file based on the given template.
     Fill the right worksheet with data such as scenarios chosen for each k and corresponding probabilities"""
     origin = PATH_TEMPLATE_STOCH_PAR
-    dest = f"{FOLDER_SUBXLS}\Scen_Par-stocha_uncertainties_{method}_{type_matrix}.xlsx"
+    dest = os.path.join(FOLDER_SUBXLS, f"Scen_Par-stocha_uncertainties_{method}_{type_matrix}.xlsx")
     shutil.copyfile(origin, dest)
 
     # open the new parametric file, keep old data and formulas
@@ -271,7 +281,7 @@ def write_parametric_xls(method="CSSC_new", type_matrix="full", cluster=None, N=
 
 def write_parametric2s_xls(cost_matrix):
     origin = PATH_TEMPLATE_STOCH_PAR_2s
-    dest = f"{FOLDER_SUBXLS}\Scen_Par-stocha_uncertainties_2S.xlsx"
+    dest = os.path.join(FOLDER_SUBXLS, "Scen_Par-stocha_uncertainties_2S.xlsx")
     shutil.copyfile(origin, dest)
     pairs = cl.get_pairs_scenarios(cost_matrix)
     ws_s = wf.ExcelTIMES(dest, "source_scenarios", data_only=False, delete_old=False)
@@ -279,7 +289,8 @@ def write_parametric2s_xls(cost_matrix):
     ws_s.close()
 
 def write_stochastic_xls():
-    origin = PATH_SCENARIOS
+    pass
+    # origin = PATH_SCENARIOS
     # elif type_file == "stochastic":
     # path = f"{FOLDER_SUBXLS}\Scen_stocha_uncertainties_{method}_{type_matrix}_{self.K}.xlsx"
     # shutil.copyfile(dict_source_file[type_file], path)
@@ -331,29 +342,29 @@ class ApproximateSP():
         move_gdx(name_case_par=self.basename_1s, n_start=1, n_fin=self.N)
         input(f"Export results as .csv to the {PATH_FIRSTSTAGE_DIAG} folder")
 
-    
+
     def get_scenarios_for_sparse(self, corr=0.99, new_file_matrix=True):
         """ Choose which lines of the cost-opportunity matrix to compute based on similarity in first stage solutions of individual subproblems """
         print("Clustering first stage solution of individual problems...")
         self.cluster_sparse = cl.cluster_first_stage_solutions(PATH_FIRSTSTAGE_DIAG, coeff=corr, new_file_matrix=new_file_matrix)
-        self.scen_to_be_calculated = [k for k in self.cluster_sparse.keys()]
+        self.scen_to_be_calculated = list(self.cluster_sparse.keys())
         print(f"Scenarios to be computed: {self.scen_to_be_calculated}")
         print(f"Total number of determnistic instances reduced by {100*(self.N-len(self.scen_to_be_calculated)-1)/self.N} %")
-        
+
 
     def compute_scenarios_matrix(self, sparse=False):
         if sparse:
             self.get_scenarios_for_sparse(corr=0.99, new_file_matrix=True)
             create_cases_fix_first_stage(self.year_second_stage,
                                             model_case_name=self.basename_1s,
-                                            model_solu_fixed_from=self.basename_1s, 
+                                            model_solu_fixed_from=self.basename_1s,
                                             n_list = self.scen_to_be_calculated)
         input(f"reload run manager tab and run the N Parametric use cases of TIMES + put results files containing obj. fct. value in {PATH_RESULTS} folder")
 
 
-    def clustering_1s(self, sparse=False, list_methods=["CSSC_new"], list_K=[1,2,3,4,5,10]):
+    def clustering_1s(self, sparse=False, list_methods=None, list_K=None):
         """ Normal method to cluster the scenarios"""
-        if sparse and self.cluster_sparse == {}:
+        if sparse and not self.cluster_sparse:
             self.get_scenarios_for_sparse(corr=0.99, new_file_matrix=True)
         self.get_cost_matrix(PATH_RESULTS, coeff=10**-5, sparse=sparse)
         self.get_clusters(list_K, list_methods, sparse)
@@ -365,11 +376,11 @@ class ApproximateSP():
 
 
 
-    def clustering_2s(self, sparse=False, list_methods=["CSSC_new"], list_K=[1,2,3,4,5,10]):
+    def clustering_2s(self, sparse=False, list_methods=None, list_K=None):
         """ Experimental: Cluster the scenarios by first pairing them
           and then working on 2S SP as if individual scenarios
             to create cost opportunity matrix and clustering strategies"""
-        if sparse and self.cluster_sparse == {}:
+        if sparse and not self.cluster_sparse:
             self.get_scenarios_for_sparse(corr=0.99, new_file_matrix=True)
         self.get_cost_matrix(PATH_RESULTS, coeff=10**-5, sparse=sparse)
         # the matrix needs only diagonals elements, so need only to run the individual scenarios once
@@ -409,7 +420,7 @@ class ApproximateSP():
                             if not (k % 2 == 1 and pairs[v][0] == solo_cluster_repr)]
                         cluster_mk[s2] = [pairs[v][1] for v in value
                             if not (k % 2 == 1 and pairs[v][1] == solo_cluster_repr)]
-                
+
                 # We have odd k (one cluster will be made from a solo scenario, not a pair
                 if k % 2 == 1:
                     if k == 1:
@@ -421,8 +432,8 @@ class ApproximateSP():
                         solo_cluster_scenarios = [solo_cluster_repr]
                     cluster_mk[solo_cluster_repr] = solo_cluster_scenarios
                 cluster_final[(m, type_matrix, k)] = {key:v for key,v in cluster_mk.items()}
-        
-        
+
+
         for m in list_methods:
             write_parametric_xls(method=m, type_matrix=type_matrix, cluster=cluster_final)
 
@@ -433,7 +444,7 @@ class ApproximateSP():
         dict_class = {"CSSC_new":cl.ClusterMIP, "CSSC_old":cl.ClusterMIP,
                        "medoid_distance":cl.ClusterMedoidDistance, "medoid":cl.ClusterMedoid,
                          "random":cl.ClusterRandom, "spectral":cl.ClusterNormalizedSpectral}
-        
+
         dict_class_kwargs = {"CSSC_new":{"cost_matrix": cost_matrix}, "CSSC_old":{"cost_matrix": cost_matrix},
                                 "medoid_distance":{"cost_matrix": cost_matrix}, "medoid":{"combi":get_combination(self.uncertainties)},
                                     "random":{"N": self.N}, "spectral":{"cost_matrix": cost_matrix}}
@@ -463,7 +474,7 @@ class ApproximateSP():
         matrix = np.empty(shape=(N_new, N_new), dtype='object') if (N and name_base=="2s") else self.cost_matrix
 
         print(f"Creating {'sparse' if sparse else 'full'} cost-opportunity matrix of size {N}...", end="")
-        for file in os.scandir(folder_matrix):  
+        for file in os.scandir(folder_matrix):
             if file.is_file():
                 print(f"reading {file}")
                 df_obj = pd.read_csv(file, sep=";", )
@@ -489,7 +500,7 @@ class ApproximateSP():
             return matrix
         else:
             self.cost_matrix = matrix
-    
+
 
 
 
@@ -497,11 +508,11 @@ def update_SP_full_file(self):
     combinations = get_combination(self.uncert)
     sows = {j+1:1/self.N for j in range(self.N)}
     stages = {2:self.year_second_stage}
-    
-    sett = wf.ExcelSettings(PATH_SCENARIOS, ws_name="stochastic", data_only=False)
-    sett.SOW(stages, sows)
+
+    sett = wf.ExcelTIMES(PATH_SCENARIOS, ws_name="stochastic", data_only=False)
+    sett.sow(stages, sows)
     sett.close()
-    ws_s = wf.ExcelScenarios(PATH_SCENARIOS, "source_scenarios", data_only=False, delete_old=False)
+    ws_s = wf.ExcelTIMES(PATH_SCENARIOS, "source_scenarios", data_only=False, delete_old=False)
     ws_s.write_scenarios(combinations, new_scenarios=False)
     ws_s.close()
 
@@ -513,15 +524,15 @@ def update_SP_full_file(self):
 def get_full_SP_fixed_1st_stage(list_methods, list_k):
     type_matrix = ["full", "sparse"]
     names = [f"{m}_{t}_{k}" for m in list_methods for t in type_matrix for k in list_k]
-    create_groups_scenarios(model_group_stocha="stochastic_full", list_name_new_groups=names, )
+    create_groups_scenarios(model_group_name="stochastic_full", list_name_new_groups=names, )
 
     input("close/open run manager again")
     # create_cases_scenarios(name_case_stocha="stochastic_full", list_name_new_cases=names)
 
     for name in names:
-        src_file = f"{PATH_GDX}\{name}\GAMSSAVE\{name}.gdx"
-        dst_file = f"{PATH_TIMES}\AppData\GAMSSAVE\{name}.gdx"
-        shutil.copyfile(src_file, dst_file)                
+        src_file = os.path.join(PATH_GDX, name, "GAMSSAVE", f"{name}.gdx")
+        dst_file = os.path.join(PATH_TIMES, "AppData", "GAMSSAVE", f"{name}.gdx")
+        shutil.copyfile(src_file, dst_file)
 
     create_cases_fix_first_stage(year_second_stage=2035,
                                  model_case_name="stochastic_full",
@@ -529,17 +540,17 @@ def get_full_SP_fixed_1st_stage(list_methods, list_k):
                                 list_methods=list_methods, type_matrix=type_matrix, list_K=list_k)
 
 if __name__ == "__main__":
-    method = "CSSC_new"
-    K = 5
-    year_second_stage = 2035
+    METHOD = "CSSC_new"
+    REDUCED_K = 5
+    YEAR_SECOND_STAGE = 2035
 
-    uncertainties = []
-    for u in ["WIND","CO2TAX", "HYDROGEN", "DMD", "ELEC"]: 
-        uncertainties.append([u, []])
+    UNCERTAINTIES = []
+    for uncertainty in ["WIND","CO2TAX", "HYDROGEN", "DMD", "ELEC"]:
+        UNCERTAINTIES.append([uncertainty, []])
         for lvl in ["HIGH", "LOW"]:
 
-            uncertainties[-1][1].append(lvl)
+            UNCERTAINTIES[-1][1].append(lvl)
 
     # ex: uncertainties = [["WIND", ["HIGH", "LOW"]], ["HYDROGEN", ["HIGH", "LOW"]]]
-    approxi_SP = ApproximateSP(year_second_stage, uncertainties)
-    approxi_SP.get_approximate(method, K, sparse=True)
+    approxi_SP = ApproximateSP(YEAR_SECOND_STAGE, UNCERTAINTIES)
+    approxi_SP.get_approximate(METHOD, REDUCED_K, sparse=True)
